@@ -1,0 +1,453 @@
+# =============================================================================
+# OWASP Secure Coding Guidelines - Test Case Definitions
+# =============================================================================
+# Covers: Input Validation, Output Encoding, Data Protection, Error Handling,
+#         Authentication, Session Management, Access Control, Cryptography,
+#         Data Storage, Communication, Business Logic
+
+test_cases:
+
+  # ===========================================================================
+  # Input Validation
+  # ===========================================================================
+  - id: "SCG-IV-001"
+    name: "Input Validation - SQL/NoSQL Injection via Query Parameter"
+    owasp_mapping:
+      category: "SCG-InputValidation"
+      name: "Input Validation"
+    applicable_categories:
+      - "data_query"
+      - "business_logic"
+    severity: "Critical"
+    mutation_type: "soql_injection"
+    payloads:
+      injection_payloads:
+        - "' OR '1'='1"
+        - "'; DROP TABLE Account--"
+        - "1; SELECT * FROM User WHERE 1=1"
+        - "admin'--"
+        - "' UNION SELECT null,null,null,null--"
+    expected_secure_behavior: "Input validation rejects malicious payloads"
+    finding_criteria:
+      status_codes: [200]
+      response_must_not_contain:
+        - "records"
+        - "attributes"
+        - "totalSize"
+      description: "Query accepts injection payloads without validation"
+
+  - id: "SCG-IV-002"
+    name: "Input Validation - XSS via API Response"
+    owasp_mapping:
+      category: "SCG-OutputEncoding"
+      name: "Output Encoding"
+    applicable_categories:
+      - "user_data_crud"
+      - "business_logic"
+    severity: "High"
+    mutation_type: "xss_injection"
+    payloads:
+      xss_payloads:
+        - '<script>alert("XSS")</script>'
+        - '<img src=x onerror=alert(1)>'
+        - '"><script>alert(document.cookie)</script>'
+        - 'javascript:alert(1)'
+        - '<svg/onload=alert(1)>'
+        - '{{7*7}}'
+        - '${7*7}'
+      injection_fields:
+        - "Subject"
+        - "Description"
+        - "Name"
+        - "CommentBody"
+        - "Title"
+    expected_secure_behavior: "Input is sanitized or output is encoded"
+    finding_criteria:
+      response_must_not_contain:
+        - '<script>alert'
+        - 'onerror='
+        - 'javascript:'
+      description: "API accepts or reflects XSS payloads without encoding"
+
+  - id: "SCG-IV-003"
+    name: "Input Validation - Buffer Overflow via Large Payload"
+    owasp_mapping:
+      category: "SCG-InputValidation"
+      name: "Input Validation"
+    applicable_categories:
+      - "user_data_crud"
+      - "file_upload"
+    severity: "Medium"
+    mutation_type: "resource_exhaustion"
+    payloads:
+      description: "Send extremely large field values"
+      large_payloads:
+        - field_length: 100000
+        - field_length: 1000000
+        - file_size_mb: 100
+    expected_secure_behavior: "413 or 400 with size limit error"
+    finding_criteria:
+      status_codes: [200, 201, 204]
+      description: "Endpoint accepts oversized payloads"
+
+  - id: "SCG-IV-004"
+    name: "Input Validation - Special Characters in SOQL"
+    owasp_mapping:
+      category: "SCG-InputValidation"
+      name: "Input Validation"
+    applicable_categories:
+      - "data_query"
+    severity: "Medium"
+    mutation_type: "soql_injection"
+    payloads:
+      special_characters:
+        - "\\"
+        - "'"
+        - '"'
+        - ";"
+        - "--"
+        - "/*"
+        - "*/"
+        - "%00"
+        - "\n"
+        - "\r"
+    expected_secure_behavior: "Proper escaping or rejection of special characters"
+    finding_criteria:
+      status_codes: [200]
+      description: "Special characters not properly handled in SOQL"
+
+  # ===========================================================================
+  # Output Encoding / Stored XSS
+  # ===========================================================================
+  - id: "SCG-OE-001"
+    name: "Output Encoding - Stored XSS via Create"
+    owasp_mapping:
+      category: "SCG-OutputEncoding"
+      name: "Output Encoding"
+    applicable_categories:
+      - "user_data_crud"
+      - "business_logic"
+    severity: "High"
+    mutation_type: "stored_xss"
+    payloads:
+      xss_payloads:
+        - '<script>alert("Stored XSS")</script>'
+        - '<img src=x onerror=alert(document.cookie)>'
+      target_objects:
+        - "Case"
+        - "Account"
+        - "Contact"
+        - "FeedItem"
+    expected_secure_behavior: "Stored content is HTML-encoded on retrieval"
+    finding_criteria:
+      response_must_not_contain:
+        - '<script>alert'
+        - 'onerror='
+      description: "Stored XSS payload reflected without encoding"
+
+  # ===========================================================================
+  # Data Protection / PII Exposure
+  # ===========================================================================
+  - id: "SCG-DP-001"
+    name: "Data Protection - PII in API Response"
+    owasp_mapping:
+      category: "SCG-DataProtection"
+      name: "Data Protection"
+    applicable_categories:
+      - "data_query"
+      - "user_data_crud"
+      - "tenant_isolation"
+    severity: "High"
+    mutation_type: "pii_check"
+    payloads:
+      pii_fields:
+        - "Email"
+        - "Phone"
+        - "MobilePhone"
+        - "HomePhone"
+        - "MailingAddress"
+        - "OtherAddress"
+        - "SSN__c"
+        - "Credit_Card__c"
+        - "DateOfBirth__c"
+        - "DriverLicense__c"
+      description: "Check if PII is exposed in responses to unauthorized users"
+    expected_secure_behavior: "PII fields masked or excluded based on FLS/CLS"
+    finding_criteria:
+      description: "PII data exposed without field-level security enforcement"
+
+  - id: "SCG-DP-002"
+    name: "Data Protection - Sensitive Data in Logs/Headers"
+    owasp_mapping:
+      category: "SCG-DataProtection"
+      name: "Data Protection"
+    applicable_categories:
+      - "authentication"
+      - "data_query"
+    severity: "Medium"
+    mutation_type: "header_check"
+    payloads:
+      sensitive_header_patterns:
+        - "X-SFDC-Request-Id"
+        - "X-B3-TraceId"
+        - "Server"
+        - "X-Powered-By"
+      description: "Check for sensitive information in response headers"
+    expected_secure_behavior: "Sensitive server info not exposed in headers"
+    finding_criteria:
+      description: "Response headers leak server implementation details"
+
+  # ===========================================================================
+  # Authentication & Session Management
+  # ===========================================================================
+  - id: "SCG-AUTH-001"
+    name: "Auth - Token in URL Parameter"
+    owasp_mapping:
+      category: "SCG-Authentication"
+      name: "Authentication"
+    applicable_categories:
+      - "authentication"
+    severity: "High"
+    mutation_type: "session_fixation"
+    payloads:
+      description: "Check if auth token can be passed via URL"
+      url_params:
+        - "access_token={token}"
+        - "sid={token}"
+        - "session={token}"
+    expected_secure_behavior: "URL parameters not accepted for authentication"
+    finding_criteria:
+      status_codes: [200, 302]
+      description: "Authentication token accepted via URL parameter"
+
+  - id: "SCG-AUTH-002"
+    name: "Auth - Weak Password Policy (Registration)"
+    owasp_mapping:
+      category: "SCG-Authentication"
+      name: "Authentication"
+    applicable_categories:
+      - "authentication"
+    severity: "Medium"
+    mutation_type: "auth_enumeration"
+    payloads:
+      description: "Test registration/login with weak passwords"
+      weak_passwords:
+        - "password"
+        - "123456"
+        - "admin"
+        - "test"
+        - "a"
+    expected_secure_behavior: "Weak passwords rejected"
+    finding_criteria:
+      status_codes: [200, 201]
+      description: "Weak password accepted by the system"
+
+  # ===========================================================================
+  # Access Control
+  # ===========================================================================
+  - id: "SCG-AC-001"
+    name: "Access Control - Horizontal Privilege Escalation"
+    owasp_mapping:
+      category: "SCG-AccessControl"
+      name: "Access Control"
+    applicable_categories:
+      - "user_data_crud"
+      - "data_query"
+      - "tenant_isolation"
+    severity: "Critical"
+    mutation_type: "bola_id_swap"
+    payloads:
+      description: "Access resources of another user at the same privilege level"
+      swaps:
+        - field: "url_path_record_id"
+          from_hint: "current_user_record_id"
+          to_hint: "other_user_record_id"
+    expected_secure_behavior: "403 Forbidden for cross-user access"
+    finding_criteria:
+      status_codes: [200, 201]
+      description: "Horizontal privilege escalation possible"
+
+  - id: "SCG-AC-002"
+    name: "Access Control - Vertical Privilege Escalation"
+    owasp_mapping:
+      category: "SCG-AccessControl"
+      name: "Access Control"
+    applicable_categories:
+      - "admin_operations"
+    severity: "Critical"
+    mutation_type: "method_override"
+    payloads:
+      description: "Attempt admin operations with user token"
+      method_override_headers:
+        - "X-HTTP-Method-Override"
+        - "X-HTTP-Method"
+    expected_secure_behavior: "403 Forbidden for admin operations"
+    finding_criteria:
+      status_codes: [200, 201, 204]
+      description: "Vertical privilege escalation via method override"
+
+  # ===========================================================================
+  # Error Handling
+  # ===========================================================================
+  - id: "SCG-EH-001"
+    name: "Error Handling - Verbose Error Messages"
+    owasp_mapping:
+      category: "SCG-ErrorHandling"
+      name: "Error Handling"
+    applicable_categories:
+      - "authentication"
+      - "data_query"
+      - "user_data_crud"
+    severity: "Medium"
+    mutation_type: "error_enumeration"
+    payloads:
+      malformed_requests:
+        - type: "invalid_json"
+          body: "not json at all"
+        - type: "empty_body"
+          body: ""
+        - type: "wrong_content_type"
+          content_type: "text/plain"
+          body: "test"
+        - type: "missing_fields"
+          body: "{}"
+    expected_secure_behavior: "Generic error message without stack traces"
+    finding_criteria:
+      response_must_not_contain:
+        - "Exception"
+        - "stack trace"
+        - "apex"
+        - "soql"
+        - "sosl"
+        - "AuraHandledException"
+        - "System."
+        - "Class."
+        - ".line "
+      description: "Error response leaks implementation details"
+
+  # ===========================================================================
+  # Business Logic
+  # ===========================================================================
+  - id: "SCG-BL-001"
+    name: "Business Logic - Race Condition in Balance Update"
+    owasp_mapping:
+      category: "SCG-BusinessLogic"
+      name: "Business Logic"
+    applicable_categories:
+      - "business_logic"
+    severity: "High"
+    mutation_type: "race_condition"
+    payloads:
+      description: "Concurrent requests to test race condition"
+      concurrent_requests: 10
+      target_operation: "balance_update"
+    expected_secure_behavior: "Proper locking/serialization of balance operations"
+    finding_criteria:
+      status_codes: [200, 201]
+      description: "Race condition allows double-spending or data corruption"
+
+  - id: "SCG-BL-002"
+    name: "Business Logic - Negative Quantity/Amount Abuse"
+    owasp_mapping:
+      category: "SCG-BusinessLogic"
+      name: "Business Logic"
+    applicable_categories:
+      - "business_logic"
+    severity: "Medium"
+    mutation_type: "business_logic_bypass"
+    payloads:
+      negative_values:
+        - field: "Quantity"
+          value: -1
+        - field: "Amount"
+          value: -1000
+        - field: "UnitPrice"
+          value: -50
+        - field: "Discount"
+          value: 100
+        - field: "Discount"
+          value: 999
+    expected_secure_behavior: "Server validates positive values and reasonable ranges"
+    finding_criteria:
+      status_codes: [200, 201, 204]
+      description: "Negative values accepted in business-critical fields"
+
+  # ===========================================================================
+  # Cryptography
+  # ===========================================================================
+  - id: "SCG-CRYPTO-001"
+    name: "Cryptography - TLS Version Check"
+    owasp_mapping:
+      category: "SCG-Cryptography"
+      name: "Cryptography"
+    applicable_categories:
+      - "authentication"
+      - "data_query"
+      - "user_data_crud"
+    severity: "Medium"
+    mutation_type: "transport_check"
+    payloads:
+      description: "Check TLS version support"
+      check_tls_versions: true
+    expected_secure_behavior: "TLS 1.2+ required"
+    finding_criteria:
+      description: "Server accepts TLS 1.0 or 1.1 connections"
+
+  - id: "SCG-CRYPTO-002"
+    name: "Cryptography - Weak Cipher Suites"
+    owasp_mapping:
+      category: "SCG-Cryptography"
+      name: "Cryptography"
+    applicable_categories:
+      - "authentication"
+    severity: "Low"
+    mutation_type: "transport_check"
+    payloads:
+      description: "Check for weak cipher suites"
+      weak_ciphers:
+        - "RC4"
+        - "DES"
+        - "3DES"
+        - "NULL"
+        - "EXPORT"
+    expected_secure_behavior: "Only strong cipher suites accepted"
+    finding_criteria:
+      description: "Server accepts weak cipher suites"
+
+  # ===========================================================================
+  # SSRF (Cross-cutting)
+  # ===========================================================================
+  - id: "SCG-SSRF-001"
+    name: "SSRF - Internal Network Scan via API Parameter"
+    owasp_mapping:
+      category: "SCG-InputValidation"
+      name: "Input Validation"
+    applicable_categories:
+      - "business_logic"
+    severity: "High"
+    mutation_type: "ssrf_injection"
+    payloads:
+      internal_targets:
+        - "http://169.254.169.254/latest/meta-data/"
+        - "http://169.254.169.254/latest/meta-data/iam/security-credentials/"
+        - "http://localhost:8080"
+        - "http://127.0.0.1:3306"
+        - "http://[::1]"
+        - "http://0177.0.0.1"
+        - "http://0x7f000001"
+      injection_fields:
+        - "url"
+        - "website"
+        - "callback_url"
+        - "redirect_url"
+        - "image_url"
+        - "document_url"
+    expected_secure_behavior: "Server-side request is blocked or URL is sanitized"
+    finding_criteria:
+      status_codes: [200, 201, 202]
+      response_must_not_contain:
+        - "ami-id"
+        - "instance-id"
+        - "iam"
+        - "security-credentials"
+      description: "SSRF allows server to access internal resources"

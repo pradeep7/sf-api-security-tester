@@ -1,0 +1,372 @@
+# =============================================================================
+# OWASP Web Application Security Top 10 (2021) - Test Case Definitions
+# =============================================================================
+# Covers: A01-Broken Access, A02-Cryptographic Failures, A03-Injection,
+#         A04-Insecure Design, A05-Security Misconfig, A06-Vulnerable Components,
+#         A07-Auth Failures, A08-Data Integrity, A09-Logging Failures,
+#         A10-SSRF
+
+test_cases:
+
+  # ===========================================================================
+  # A03:2021 - Injection
+  # ===========================================================================
+  - id: "WEB-A03-001"
+    name: "SOQL Injection - Basic Tautology"
+    owasp_mapping:
+      category: "A03:2021"
+      name: "Injection"
+    applicable_categories:
+      - "data_query"
+    severity: "Critical"
+    mutation_type: "soql_injection"
+    payloads:
+      soql_payloads:
+        - "' OR '1'='1"
+        - "' OR 1=1--"
+        - "' OR 'a'='a"
+        - "'; SELECT * FROM User--"
+        - "' UNION SELECT Id,Name,Email FROM User--"
+        - "' OR 1=1 LIMIT 1--"
+    expected_secure_behavior: "SOQL error or empty results"
+    finding_criteria:
+      status_codes: [200]
+      response_must_not_contain:
+        - "records"
+        - "attributes"
+      description: "SOQL injection returns unauthorized data"
+
+  - id: "WEB-A03-002"
+    name: "SOQL Injection - UNION-based Data Extraction"
+    owasp_mapping:
+      category: "A03:2021"
+      name: "Injection"
+    applicable_categories:
+      - "data_query"
+    severity: "Critical"
+    mutation_type: "soql_injection"
+    payloads:
+      soql_payloads:
+        - "SELECT Id FROM Account UNION SELECT Id,Name,Email,Phone FROM User"
+        - "SELECT Id FROM Case UNION SELECT Id,Title,Content FROM FeedItem"
+    expected_secure_behavior: "SOQL error or restricted results"
+    finding_criteria:
+      status_codes: [200]
+      description: "UNION injection extracts cross-object data"
+
+  - id: "WEB-A03-003"
+    name: "SOQL Injection - Time-based Blind"
+    owasp_mapping:
+      category: "A03:2021"
+      name: "Injection"
+    applicable_categories:
+      - "data_query"
+    severity: "High"
+    mutation_type: "soql_injection"
+    payloads:
+      soql_payloads:
+        - "' OR (SELECT COUNT(*) FROM User) > 0--"
+    expected_secure_behavior: "Normal response time or SOQL error"
+    finding_criteria:
+      response_time_threshold_ms: 5000
+      description: "Response delay indicates blind SOQL injection"
+
+  - id: "WEB-A03-004"
+    name: "SOSL Injection - Search Parameter Manipulation"
+    owasp_mapping:
+      category: "A03:2021"
+      name: "Injection"
+    applicable_categories:
+      - "data_query"
+      - "business_logic"
+    severity: "High"
+    mutation_type: "sosl_injection"
+    payloads:
+      sosl_payloads:
+        - "FIND {SELECT Id FROM User}"
+        - "FIND {test} IN ALL FIELDS RETURNING User(Id,Name,Email)"
+        - "FIND {*} IN ALL FIELDS RETURNING Account,Contact,Lead,User"
+    expected_secure_behavior: "SOSL error or no results"
+    finding_criteria:
+      status_codes: [200]
+      description: "SOSL injection returns unauthorized search results"
+
+  # ===========================================================================
+  # A02:2021 - Cryptographic Failures
+  # ===========================================================================
+  - id: "WEB-A02-001"
+    name: "Cryptographic - HTTP to HTTPS Redirect Check"
+    owasp_mapping:
+      category: "A02:2021"
+      name: "Cryptographic Failures"
+    applicable_categories:
+      - "authentication"
+      - "user_data_crud"
+      - "data_query"
+    severity: "Medium"
+    mutation_type: "transport_check"
+    payloads:
+      description: "Check if HTTP endpoints redirect to HTTPS"
+      http_base_urls:
+        - "http://your-assist-portal.salesforce.com"
+        - "http://your-tenant-portal.salesforce.com"
+    expected_secure_behavior: "301/302 redirect to HTTPS"
+    finding_criteria:
+      status_codes: [200]
+      description: "HTTP endpoint accessible without HTTPS redirect"
+
+  - id: "WEB-A02-002"
+    name: "Cryptographic - Sensitive Data in URL Parameters"
+    owasp_mapping:
+      category: "A02:2021"
+      name: "Cryptographic Failures"
+    applicable_categories:
+      - "data_query"
+      - "business_logic"
+    severity: "Medium"
+    mutation_type: "header_check"
+    payloads:
+      description: "Check if sensitive data appears in URL query strings"
+      sensitive_patterns:
+        - "password"
+        - "token"
+        - "secret"
+        - "ssn"
+        - "credit_card"
+    expected_secure_behavior: "Sensitive data only in POST body or headers"
+    finding_criteria:
+      description: "Sensitive data exposed in URL query parameters"
+
+  # ===========================================================================
+  # A05:2021 - Security Misconfiguration
+  # ===========================================================================
+  - id: "WEB-A05-001"
+    name: "Misconfiguration - HTTP Methods Enumeration"
+    owasp_mapping:
+      category: "A05:2021"
+      name: "Security Misconfiguration"
+    applicable_categories:
+      - "user_data_crud"
+      - "admin_operations"
+    severity: "Low"
+    mutation_type: "method_change"
+    payloads:
+      methods_to_test: ["OPTIONS", "TRACE", "TRACK", "DEBUG", "CONNECT"]
+    expected_secure_behavior: "405 Method Not Allowed for unsupported methods"
+    finding_criteria:
+      status_codes: [200]
+      response_must_contain:
+        - "TRACE"
+        - "TRACK"
+        - "DEBUG"
+      description: "Dangerous HTTP methods enabled"
+
+  - id: "WEB-A05-002"
+    name: "Misconfiguration - Directory Listing"
+    owasp_mapping:
+      category: "A05:2021"
+      name: "Security Misconfiguration"
+    applicable_categories:
+      - "user_data_crud"
+      - "file_upload"
+    severity: "Medium"
+    mutation_type: "path_traversal"
+    payloads:
+      paths_to_test:
+        - "/services/data/"
+        - "/services/"
+        - "/s/"
+        - "/aura/"
+        - "/_ui/"
+    expected_secure_behavior: "403 Forbidden or 404 Not Found"
+    finding_criteria:
+      status_codes: [200]
+      response_must_contain:
+        - "Index of"
+        - "Directory listing"
+        - "<title>Index"
+      description: "Directory listing enabled on API paths"
+
+  # ===========================================================================
+  # A07:2021 - Identification and Authentication Failures
+  # ===========================================================================
+  - id: "WEB-A07-001"
+    name: "Auth Failure - Session Fixation via URL Token"
+    owasp_mapping:
+      category: "A07:2021"
+      name: "Identification and Authentication Failures"
+    applicable_categories:
+      - "authentication"
+    severity: "High"
+    mutation_type: "session_fixation"
+    payloads:
+      description: "Check if session tokens are accepted via URL parameters"
+      url_token_params:
+        - "sid"
+        - "session_id"
+        - "token"
+        - "access_token"
+    expected_secure_behavior: "URL parameters ignored for session establishment"
+    finding_criteria:
+      status_codes: [200, 302]
+      description: "Session accepted via URL parameter"
+
+  # ===========================================================================
+  # A01:2021 - Broken Access Control
+  # ===========================================================================
+  - id: "WEB-A01-001"
+    name: "Broken Access - IDOR via URL Manipulation"
+    owasp_mapping:
+      category: "A01:2021"
+      name: "Broken Access Control"
+    applicable_categories:
+      - "user_data_crud"
+      - "data_query"
+      - "tenant_isolation"
+    severity: "Critical"
+    mutation_type: "bola_id_swap"
+    payloads:
+      description: "Sequential ID enumeration"
+      sequential_increment: true
+      max_attempts: 10
+    expected_secure_behavior: "403 or 404 for unauthorized IDs"
+    finding_criteria:
+      status_codes: [200, 201]
+      description: "Sequential ID enumeration succeeds"
+
+  - id: "WEB-A01-002"
+    name: "Broken Access - Forced Browsing"
+    owasp_mapping:
+      category: "A01:2021"
+      name: "Broken Access Control"
+    applicable_categories:
+      - "admin_operations"
+      - "user_data_crud"
+    severity: "High"
+    mutation_type: "forced_browsing"
+    payloads:
+      paths_to_test:
+        - "/services/data/v58.0/sobjects/User/describe"
+        - "/services/data/v58.0/tooling/query?q=SELECT+Id+FROM+ApexClass"
+        - "/services/data/v58.0/setup/objectManager/home"
+        - "/s/async/apex"
+    expected_secure_behavior: "403 Forbidden for unauthorized paths"
+    finding_criteria:
+      status_codes: [200, 201]
+      description: "Admin/setup paths accessible without proper authorization"
+
+  # ===========================================================================
+  # A04:2021 - Insecure Design
+  # ===========================================================================
+  - id: "WEB-A04-001"
+    name: "Insecure Design - Mass Assignment"
+    owasp_mapping:
+      category: "A04:2021"
+      name: "Insecure Design"
+    applicable_categories:
+      - "user_data_crud"
+      - "business_logic"
+    severity: "High"
+    mutation_type: "mass_assignment"
+    payloads:
+      description: "Inject privileged fields into request body"
+      field_injections:
+        - field: "IsAdmin"
+          value: true
+        - field: "IsPortalUser"
+          value: true
+        - field: "UserType"
+          value: "Standard"
+        - field: "IsActive"
+          value: true
+        - field: "ProfileId"
+          value: "00e000000000001"
+        - field: "PermissionSetAssignment"
+          value: {"PermissionSetId": "0PS000000000001"}
+        - field: "OwnerId"
+          value: "{admin_user_id}"
+        - field: "StageName"
+          value: "Closed Won"
+    expected_secure_behavior: "Privileged fields ignored or 403"
+    finding_criteria:
+      status_codes: [200, 201, 204]
+      description: "Privileged fields accepted during object creation/update"
+
+  - id: "WEB-A04-002"
+    name: "Insecure Design - Business Logic Bypass"
+    owasp_mapping:
+      category: "A04:2021"
+      name: "Insecure Design"
+    applicable_categories:
+      - "business_logic"
+    severity: "Medium"
+    mutation_type: "business_logic_bypass"
+    payloads:
+      description: "Skip workflow steps by calling endpoints out of order"
+      bypass_sequences:
+        - skip_approval: true
+        - skip_validation: true
+        - direct_state_change: true
+    expected_secure_behavior: "Workflow enforcement server-side"
+    finding_criteria:
+      status_codes: [200, 201, 204]
+      description: "Business logic bypasses workflow enforcement"
+
+  # ===========================================================================
+  # A06:2021 - Vulnerable and Outdated Components
+  # ===========================================================================
+  - id: "WEB-A06-001"
+    name: "Vulnerable Components - API Version Exposure"
+    owasp_mapping:
+      category: "A06:2021"
+      name: "Vulnerable and Outdated Components"
+    applicable_categories:
+      - "data_query"
+      - "user_data_crud"
+    severity: "Low"
+    mutation_type: "version_enumeration"
+    payloads:
+      description: "Enumerate API versions to identify outdated components"
+      versions_to_test:
+        - "v30.0"
+        - "v35.0"
+        - "v40.0"
+        - "v45.0"
+        - "v50.0"
+        - "v55.0"
+        - "v58.0"
+        - "v59.0"
+    expected_secure_behavior: "Only current version accessible"
+    finding_criteria:
+      status_codes: [200, 201]
+      description: "Outdated API versions accessible"
+
+  # ===========================================================================
+  # Path Traversal (general web vulnerability)
+  # ===========================================================================
+  - id: "WEB-PATH-001"
+    name: "Path Traversal - File Access Attempt"
+    owasp_mapping:
+      category: "A01:2021"
+      name: "Broken Access Control"
+    applicable_categories:
+      - "file_upload"
+      - "data_query"
+    severity: "High"
+    mutation_type: "path_traversal"
+    payloads:
+      traversal_payloads:
+        - "../../../etc/passwd"
+        - "....//....//....//etc/passwd"
+        - "%2e%2e%2f%2e%2e%2f%2e%2e%2fetc%2fpasswd"
+        - "..\\..\\..\\windows\\system32\\config\\sam"
+      injection_points:
+        - "url_path"
+        - "file_name_param"
+    expected_secure_behavior: "400 Bad Request or 403 Forbidden"
+    finding_criteria:
+      status_codes: [200]
+      response_must_not_contain:
+        - "root:x:0:0"
+        - "[boot loader]"
+      description: "Path traversal allows file system access"

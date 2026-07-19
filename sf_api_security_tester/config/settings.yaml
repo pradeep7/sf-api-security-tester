@@ -1,0 +1,194 @@
+# =============================================================================
+# SF API Security Tester - Global Configuration
+# =============================================================================
+
+general:
+  project_name: "Salesforce Portal Security Assessment"
+  target_env: "production"   # production | staging | sandbox
+  dry_run: false             # Set true to preview mutations without sending requests
+  max_concurrent_requests: 5
+  request_timeout_seconds: 30
+  retry_count: 2
+  retry_delay_seconds: 2
+  ssl_verify: true
+  evidence_retention_days: 30
+
+# ---------------------------------------------------------------------------
+# Portal Definitions
+# ---------------------------------------------------------------------------
+portals:
+  assist_portal:
+    name: "Assist Portal"
+    base_url: "https://your-assist-portal.salesforce.com"
+    portal_type: "customer_community"
+    login_url: "https://your-assist-portal.salesforce.com/s/login"
+    api_prefixes:
+      - "/services/data/"
+      - "/services/apexrest/"
+      - "/aura"
+      - "/sobjects/"
+      - "/query/"
+
+  tenant_portal:
+    name: "Tenant Portal"
+    base_url: "https://your-tenant-portal.salesforce.com"
+    portal_type: "partner_community"
+    login_url: "https://your-tenant-portal.salesforce.com/s/login"
+    api_prefixes:
+      - "/services/data/"
+      - "/services/apexrest/"
+      - "/aura"
+      - "/sobjects/"
+      - "/query/"
+
+# ---------------------------------------------------------------------------
+# Authentication Tokens (loaded from credentials.yaml at runtime)
+# auth_tokens are NOT stored here -- they live in config/credentials.yaml
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Cross-Tenant IDs for BOLA / IDOR Testing
+# Replace these with real Salesforce 15/18-char IDs from your org
+# ---------------------------------------------------------------------------
+cross_tenant_ids:
+  assist_portal:
+    current_user_id: "005000000000001"       # Replace
+    other_user_id: "005000000000002"         # Another user in same org
+    other_tenant_user_id: "005000000000003"  # User from different tenant
+    record_ids:
+      - id: "a00000000000001"
+        object_type: "Case__c"
+        description: "Case belonging to current user"
+      - id: "a00000000000002"
+        object_type: "Case__c"
+        description: "Case belonging to other user (BOLA target)"
+
+  tenant_portal:
+    current_user_id: "005000000000010"
+    other_user_id: "005000000000011"
+    other_tenant_user_id: "005000000000012"
+    record_ids:
+      - id: "a00000000000010"
+        object_type: "Contract__c"
+        description: "Contract belonging to current tenant"
+      - id: "a00000000000011"
+        object_type: "Contract__c"
+        description: "Contract belonging to other tenant (BOLA target)"
+
+# ---------------------------------------------------------------------------
+# Salesforce API Versioning
+# ---------------------------------------------------------------------------
+salesforce:
+  api_version: "v58.0"
+  known_object_types:
+    - "Account"
+    - "Contact"
+    - "Case"
+    - "Lead"
+    - "Opportunity"
+    - "User"
+    - "FeedItem"
+    - "Document"
+    - "Attachment"
+    - "ContentVersion"
+    - "ContentDocument"
+    - "Custom__c"
+
+# ---------------------------------------------------------------------------
+# Playwright Settings
+# ---------------------------------------------------------------------------
+playwright:
+  headless: true
+  browser: "chromium"          # chromium | firefox | webkit
+  viewport_width: 1920
+  viewport_height: 1080
+  screenshot_timeout: 15000
+  navigation_timeout: 30000
+  screenshot_full_page: false
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+# ---------------------------------------------------------------------------
+# Evidence & Reporting
+# ---------------------------------------------------------------------------
+evidence:
+  output_dir: "output/evidence"
+  save_raw_http: true
+  save_screenshots: true
+  max_screenshot_count: 50
+
+reporting:
+  output_dir: "output/reports"
+  formats:
+    - "html"
+    - "json"
+  html_theme: "dark"
+  include_raw_evidence: true
+  executive_summary: true
+
+# ---------------------------------------------------------------------------
+# Dynamic Payload Sources (V2 - Smart Context-Aware Engine)
+# ---------------------------------------------------------------------------
+payloads:
+  cache_dir: "payloads_cache"
+  cache_ttl_days: 7
+  max_payloads_per_category: 200
+  request_timeout: 15
+
+  # Raw GitHub URLs from swisskyrepo/PayloadsAllTheThings and danielmiessler/SecLists
+  sources:
+    sql_injection:
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/SQL%20Injection/MySQL/Generic_MySQL_injections.txt"
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/SQL%20Injection/MySQL/MySQL_Bypass_waf.txt"
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/SQL%20Injection/Inband/UNION-based/detection_and_extraction.txt"
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/SQL%20Injection/Blind/Bool_blind.txt"
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/SQL%20Injection/Blind/Time_blind.txt"
+
+    soql_injection:
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/SQL%20Injection/Inband/UNION-based/detection_and_extraction.txt"
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/SQL%20Injection/Generic/Basic_probing.txt"
+
+    xss:
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/XSS%20Injection/Context%20from%20hackerone.txt"
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/XSS%20Injection/DOM%20based%20XSS%20Bypassing%20DOMpurify.txt"
+      - "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Fuzzing/special-chars.txt"
+
+    ssrf:
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/Server%20Side%20Request%20Forgery/Generic.txt"
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/Server%20Side%20Request%20Forgery/Cloud%20metadata%20requests.txt"
+
+    nosql_injection:
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/NoSQL%20Injection/MongoDB.txt"
+
+    path_traversal:
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/Path%20Traversal/Traversal%20techniques.txt"
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/Path%20Traversal/Basic%20traversal.txt"
+
+    command_injection:
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/Command%20Injection/Unix%20wildcards%20tricks.txt"
+
+    cors_misconfiguration: []
+
+    xxe:
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/XXE%20Injection/PHP%20filter%20wrappers.txt"
+
+    mass_assignment:
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/Insecure%20Direct%20Object%20References/Insecure%20Direct%20Object%20References.txt"
+
+    authentication_bypass:
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/Authentication%20bypass/CVE.txt"
+
+    lfi:
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/Inclusion%20/Path%20Traversal/detection.txt"
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/Inclusion%20/Path%20Traversal/Basic%20payload.txt"
+
+# ---------------------------------------------------------------------------
+# WAF Evasion Settings (V2 - Smart Context-Aware Engine)
+# ---------------------------------------------------------------------------
+waf_evasion:
+  enabled: true
+  delay_between_requests: 1.0       # seconds between requests
+  max_delay: 60.0                    # max backoff delay
+  backoff_multiplier: 2.0            # exponential backoff multiplier
+  max_retries: 5                     # max retries on WAF block
+  rate_limit_cooldown: 30.0          # cooldown after sustained blocks
+  rotate_user_agent: true            # rotate User-Agent on WAF detection

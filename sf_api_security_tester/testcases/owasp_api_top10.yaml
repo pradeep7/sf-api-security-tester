@@ -1,0 +1,388 @@
+# =============================================================================
+# OWASP API Security Top 10 (2023) - Test Case Definitions
+# =============================================================================
+# Covers: API1-BOLA, API2-BrokenAuth, API3-BFLA, API4-UnrestrictedResource,
+#         API5-BrokenFunctionAuth, API6-UnrestrictedAccess, API7-SSRF,
+#         API8-ImproperAssetMgmt, API8-ImproperInventory, API9-SSRF,
+#         API10-UnsafeConsumption
+
+test_cases:
+
+  # ===========================================================================
+  # API1:2023 - Broken Object Level Authorization (BOLA / IDOR)
+  # ===========================================================================
+  - id: "API1-001"
+    name: "BOLA - Access Other User's Record via REST API"
+    owasp_mapping:
+      category: "API1:2023"
+      name: "Broken Object Level Authorization"
+    applicable_categories:
+      - "user_data_crud"
+      - "data_query"
+      - "tenant_isolation"
+    severity: "Critical"
+    mutation_type: "bola_id_swap"
+    payloads:
+      description: "Replace the Salesforce record ID in URL with another user's record ID"
+      swaps:
+        - field: "url_path_record_id"
+          from_hint: "current_user_record_id"
+          to_hint: "other_user_record_id"
+    expected_secure_behavior: "403 Forbidden or 404 Not Found"
+    finding_criteria:
+      status_codes: [200, 201]
+      response_must_not_contain: []
+      response_must_contain: []
+      description: "Returns data for a record belonging to another user"
+
+  - id: "API1-002"
+    name: "BOLA - Cross-Tenant Record Access via REST API"
+    owasp_mapping:
+      category: "API1:2023"
+      name: "Broken Object Level Authorization"
+    applicable_categories:
+      - "tenant_isolation"
+      - "data_query"
+    severity: "Critical"
+    mutation_type: "bola_id_swap"
+    payloads:
+      description: "Replace record ID with a cross-tenant record ID"
+      swaps:
+        - field: "url_path_record_id"
+          from_hint: "current_tenant_record_id"
+          to_hint: "other_tenant_record_id"
+    expected_secure_behavior: "403 Forbidden or 404 Not Found"
+    finding_criteria:
+      status_codes: [200, 201]
+      description: "Returns data from a different tenant's record"
+
+  - id: "API1-003"
+    name: "BOLA - Access Other User's Record via Apex REST"
+    owasp_mapping:
+      category: "API1:2023"
+      name: "Broken Object Level Authorization"
+    applicable_categories:
+      - "business_logic"
+      - "tenant_isolation"
+    severity: "Critical"
+    mutation_type: "bola_id_swap"
+    payloads:
+      description: "Replace ID in Apex REST URL with another user's ID"
+      swaps:
+        - field: "url_path_record_id"
+          from_hint: "current_user_record_id"
+          to_hint: "other_user_record_id"
+    expected_secure_behavior: "403 Forbidden or 404 Not Found"
+    finding_criteria:
+      status_codes: [200, 201]
+      description: "Apex REST endpoint does not validate record ownership"
+
+  - id: "API1-004"
+    name: "BOLA - Query Other User's Data via SOQL"
+    owasp_mapping:
+      category: "API1:2023"
+      name: "Broken Object Level Authorization"
+    applicable_categories:
+      - "data_query"
+    severity: "Critical"
+    mutation_type: "bola_query_swap"
+    payloads:
+      description: "Modify SOQL WHERE clause to query another user's records"
+      soql_templates:
+        - "SELECT Id,Name,Email FROM Contact WHERE OwnerId='{other_user_id}'"
+        - "SELECT Id,Name FROM Account WHERE OwnerId='{other_user_id}'"
+    expected_secure_behavior: "403 Forbidden or empty results"
+    finding_criteria:
+      status_codes: [200]
+      response_must_contain:
+        - "other_user"
+      description: "SOQL query returns data belonging to another user"
+
+  # ===========================================================================
+  # API2:2023 - Broken Authentication
+  # ===========================================================================
+  - id: "API2-001"
+    name: "Broken Auth - Remove Authorization Header"
+    owasp_mapping:
+      category: "API2:2023"
+      name: "Broken Authentication"
+    applicable_categories:
+      - "authentication"
+      - "user_data_crud"
+      - "admin_operations"
+      - "data_query"
+      - "business_logic"
+    severity: "Critical"
+    mutation_type: "header_removal"
+    payloads:
+      headers_to_remove:
+        - "Authorization"
+        - "Cookie"
+    expected_secure_behavior: "401 Unauthorized"
+    finding_criteria:
+      status_codes: [200, 201, 204]
+      description: "Endpoint accepts requests without any authentication"
+
+  - id: "API2-002"
+    name: "Broken Auth - Invalid Bearer Token"
+    owasp_mapping:
+      category: "API2:2023"
+      name: "Broken Authentication"
+    applicable_categories:
+      - "authentication"
+      - "user_data_crud"
+      - "data_query"
+    severity: "High"
+    mutation_type: "header_value_injection"
+    payloads:
+      header: "Authorization"
+      values:
+        - "Bearer invalid_token_12345"
+        - "Bearer "
+        - "Bearer null"
+        - "Basic dGVzdDp0ZXN0"
+    expected_secure_behavior: "401 Unauthorized"
+    finding_criteria:
+      status_codes: [200, 201, 204]
+      description: "Endpoint accepts invalid authentication tokens"
+
+  - id: "API2-003"
+    name: "Broken Auth - Expired Session Token"
+    owasp_mapping:
+      category: "API2:2023"
+      name: "Broken Authentication"
+    applicable_categories:
+      - "authentication"
+      - "user_data_crud"
+    severity: "High"
+    mutation_type: "header_value_injection"
+    payloads:
+      header: "Authorization"
+      values:
+        - "Bearer 00D000000000001!EXPIRED_SESSION_1234567890"
+    expected_secure_behavior: "401 Unauthorized"
+    finding_criteria:
+      status_codes: [200, 201, 204]
+      description: "Endpoint does not validate session expiry"
+
+  # ===========================================================================
+  # API3:2023 - Broken Function Level Authorization (BFLA)
+  # ===========================================================================
+  - id: "API3-001"
+    name: "BFLA - Access Admin Endpoint with User Token"
+    owasp_mapping:
+      category: "API3:2023"
+      name: "Broken Function Level Authorization"
+    applicable_categories:
+      - "admin_operations"
+    severity: "High"
+    mutation_type: "method_override"
+    payloads:
+      description: "Attempt to access admin-only paths with standard user token"
+      method_override_headers:
+        - "X-HTTP-Method-Override"
+        - "X-HTTP-Method"
+        - "_method"
+      target_methods: ["DELETE", "PUT", "PATCH"]
+    expected_secure_behavior: "403 Forbidden"
+    finding_criteria:
+      status_codes: [200, 201, 204]
+      description: "Admin function accessible with regular user token"
+
+  - id: "API3-002"
+    name: "BFLA - HTTP Method Tampering"
+    owasp_mapping:
+      category: "API3:2023"
+      name: "Broken Function Level Authorization"
+    applicable_categories:
+      - "admin_operations"
+      - "user_data_crud"
+    severity: "High"
+    mutation_type: "method_change"
+    payloads:
+      description: "Change HTTP method to test authorization bypass"
+      method_sequence: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
+    expected_secure_behavior: "403 or 405 Method Not Allowed"
+    finding_criteria:
+      status_codes: [200, 201, 204]
+      description: "Endpoint accepts unexpected HTTP methods"
+
+  # ===========================================================================
+  # API4:2023 - Unrestricted Resource Consumption
+  # ===========================================================================
+  - id: "API4-001"
+    name: "Unrestricted Resource - Large SOQL Query"
+    owasp_mapping:
+      category: "API4:2023"
+      name: "Unrestricted Resource Consumption"
+    applicable_categories:
+      - "data_query"
+    severity: "Medium"
+    mutation_type: "resource_exhaustion"
+    payloads:
+      soql_modifications:
+        - "SELECT Id FROM Account LIMIT 10000"
+        - "SELECT Id,Name,Description,Industry,AnnualRevenue,Phone,Fax,Website,BillingStreet,BillingCity,BillingState FROM Account"
+    expected_secure_behavior: "413 Payload Too Large or rate limit or truncated results"
+    finding_criteria:
+      status_codes: [200]
+      response_must_contain:
+        - '"totalSize":10000'
+      description: "No limit on SOQL query resource consumption"
+
+  - id: "API4-002"
+    name: "Unrestricted Resource - Bulk API Abuse"
+    owasp_mapping:
+      category: "API4:2023"
+      name: "Unrestricted Resource Consumption"
+    applicable_categories:
+      - "data_query"
+      - "user_data_crud"
+    severity: "Medium"
+    mutation_type: "resource_exhaustion"
+    payloads:
+      description: "Rapid-fire requests to test rate limiting"
+      batch_size: 10
+      requests_per_second: 50
+    expected_secure_behavior: "429 Too Many Requests"
+    finding_criteria:
+      status_codes: [200, 201, 204]
+      description: "No rate limiting on API endpoints"
+
+  # ===========================================================================
+  # API8:2023 - Security Misconfiguration
+  # ===========================================================================
+  - id: "API8-001"
+    name: "Security Misconfig - CORS Wildcard"
+    owasp_mapping:
+      category: "API8:2023"
+      name: "Security Misconfiguration"
+    applicable_categories:
+      - "authentication"
+      - "user_data_crud"
+      - "data_query"
+      - "business_logic"
+    severity: "High"
+    mutation_type: "cors_test"
+    payloads:
+      origins_to_test:
+        - "https://evil.com"
+        - "https://attacker.com"
+        - "null"
+        - "https://your-assist-portal.salesforce.com.evil.com"
+    expected_secure_behavior: "Origin not reflected in Access-Control-Allow-Origin"
+    finding_criteria:
+      header_name: "Access-Control-Allow-Origin"
+      header_must_not_contain: ["evil.com", "attacker.com", "null"]
+      description: "CORS reflects arbitrary origins"
+
+  - id: "API8-002"
+    name: "Security Misconfig - Missing Security Headers"
+    owasp_mapping:
+      category: "API8:2023"
+      name: "Security Misconfiguration"
+    applicable_categories:
+      - "authentication"
+      - "user_data_crud"
+      - "data_query"
+    severity: "Medium"
+    mutation_type: "header_check"
+    payloads:
+      required_headers:
+        - name: "Strict-Transport-Security"
+          description: "HSTS header missing"
+        - name: "X-Content-Type-Options"
+          description: "MIME sniffing protection missing"
+        - name: "X-Frame-Options"
+          description: "Clickjacking protection missing"
+        - name: "Content-Security-Policy"
+          description: "CSP header missing"
+        - name: "X-XSS-Protection"
+          description: "XSS filter missing"
+    expected_secure_behavior: "All required security headers present"
+    finding_criteria:
+      description: "Response missing required security headers"
+
+  - id: "API8-003"
+    name: "Security Misconfig - Verbose Error Messages"
+    owasp_mapping:
+      category: "API8:2023"
+      name: "Security Misconfiguration"
+    applicable_categories:
+      - "authentication"
+      - "data_query"
+    severity: "Medium"
+    mutation_type: "error_enumeration"
+    payloads:
+      invalid_payloads:
+        - "invalid_json_body"
+        - "missing_required_fields"
+        - "malformed_soql"
+    expected_secure_behavior: "Generic error message without stack traces"
+    finding_criteria:
+      response_must_not_contain:
+        - "stack trace"
+        - "exception"
+        - "Internal Server Error"
+        - "apex class"
+        - "soql syntax"
+      description: "Error response leaks internal implementation details"
+
+  # ===========================================================================
+  # API9:2023 - Improper Inventory Management
+  # ===========================================================================
+  - id: "API9-001"
+    name: "Improper Inventory - API Version Enumeration"
+    owasp_mapping:
+      category: "API9:2023"
+      name: "Improper Inventory Management"
+    applicable_categories:
+      - "data_query"
+      - "user_data_crud"
+    severity: "Medium"
+    mutation_type: "version_enumeration"
+    payloads:
+      description: "Test older API versions for accessible endpoints"
+      version_swaps:
+        - "v58.0"
+        - "v57.0"
+        - "v56.0"
+        - "v55.0"
+        - "v48.0"
+    expected_secure_behavior: "Older versions return 404 or redirect to current"
+    finding_criteria:
+      status_codes: [200, 201, 204]
+      description: "Deprecated API versions still accessible"
+
+  # ===========================================================================
+  # API10:2023 - Unsafe Consumption of APIs
+  # ===========================================================================
+  - id: "API10-001"
+    name: "Unsafe Consumption - SSRF via External API Call"
+    owasp_mapping:
+      category: "API10:2023"
+      name: "Unsafe Consumption of APIs"
+    applicable_categories:
+      - "business_logic"
+    severity: "High"
+    mutation_type: "ssrf_injection"
+    payloads:
+      ssrf_targets:
+        - "http://169.254.169.254/latest/meta-data/"
+        - "http://localhost:8080"
+        - "http://127.0.0.1"
+        - "file:///etc/passwd"
+        - "http://[::1]"
+      injection_fields:
+        - "url"
+        - "website"
+        - "callback_url"
+        - "redirect_url"
+    expected_secure_behavior: "Request is blocked or URL is sanitized"
+    finding_criteria:
+      status_codes: [200, 201, 202]
+      response_must_not_contain:
+        - "ami-id"
+        - "instance-id"
+        - "root:x:0:0"
+      description: "Server makes requests to internal/private URLs (SSRF)"
