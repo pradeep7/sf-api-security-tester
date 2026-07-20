@@ -20,6 +20,7 @@ from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 from rich.table import Table
 
+from .auth_handoff import AuthHandoff
 from .autonomous_explorer import AutonomousExplorer
 from .dom_xss_auditor import DOMXSSAuditor
 from .endpoint_classifier import EndpointClassifier
@@ -64,6 +65,7 @@ class Orchestrator:
         explore_only: bool = False,
         skip_explore: bool = False,
         role_compare: bool = False,
+        manual_auth: bool = False,
     ):
         self.config_path = Path(config_path)
         self.config: dict[str, Any] = {}
@@ -72,6 +74,7 @@ class Orchestrator:
         self.explore_only = explore_only
         self.skip_explore = skip_explore
         self.role_compare = role_compare
+        self.manual_auth = manual_auth
 
         # V2.x Components
         self.classifier: EndpointClassifier | None = None
@@ -92,6 +95,8 @@ class Orchestrator:
         self.safe_executor: SafePayloadExecutor | None = None
         self.dom_xss_auditor: DOMXSSAuditor | None = None
         self.role_manager: RoleManager | None = None
+        self.auth_handoff: AuthHandoff | None = None
+        self.harvested_cookies: dict[str, str] = {}
 
         # V3.0 State
         self.site_map: SiteMap | None = None
@@ -150,7 +155,8 @@ class Orchestrator:
             payload_config=payload_config,
         )
 
-        # Request executor (V2: with WAF evasion)
+        # Request executor (V3.1: with WAF evasion + proxy + telemetry)
+        proxy_config = self.config.get("upstream_proxy", {})
         self.executor = RequestExecutor(
             timeout=general.get("request_timeout_seconds", 30),
             retry_count=general.get("retry_count", 2),
@@ -158,6 +164,7 @@ class Orchestrator:
             ssl_verify=general.get("ssl_verify", True),
             dry_run=general.get("dry_run", False),
             waf_evasion_config=waf_config,
+            proxy_config=proxy_config,
         )
 
         # Screenshot capture
@@ -202,6 +209,8 @@ class Orchestrator:
         self.safe_executor = SafePayloadExecutor(self.config)
         self.dom_xss_auditor = DOMXSSAuditor(self.config)
         self.role_manager = RoleManager(self.config)
+        self.auth_handoff = AuthHandoff(self.config)
+        self.auth_handoff.enabled = self.manual_auth
 
     def run(self) -> TestReport:
         """Execute the full V3.0 security testing pipeline."""
@@ -252,6 +261,15 @@ class Orchestrator:
                     return report
             else:
                 logger.info("Phase 0 skipped (--skip-explore)")
+
+            # Manual Auth Handoff (--manual-auth)
+            if self.manual_auth:
+                task = progress.add_task(
+                    "[yellow]Manual Auth: Opening browser for SSO login...",
+                    total=None,
+                )
+                self._harvest_manual_cookies()
+                progress.update(task, completed=1, total=1)
 
             # Phase 1: Parse HAR files
             task = progress.add_task("[cyan]Phase 1: Parsing HAR files...", total=None)
@@ -527,6 +545,39 @@ class Orchestrator:
                 )
             except Exception as e:
                 logger.error(f"DOM XSS audit failed: {e}")
+
+    # ------------------------------------------------------------------
+    # Manual Auth Handoff (Feature 3)
+    # ------------------------------------------------------------------
+    def _harvest_manual_cookies(self):
+        """Harvest cookies from manual SSO/JIT login."""
+        if not self.auth_handoff:
+            return
+
+        # Determine login URL from first portal config
+        portals_config = self.config.get("portals", {})
+        login_url = ""
+        for portal_key, portal_cfg in portals_config.items():
+            login_url = portal_cfg.get("login_url", portal_cfg.get("base_url", ""))
+            if login_url:
+                break
+
+        if not login_url:
+            login_url = "https://login.salesforce.com"
+
+        cookies = self.auth_handoff.harvest_cookies(login_url)
+        if cookies:
+            self.harvested_cookies = cookies
+            # Inject cookies into executor
+            self.executor.harvested_cookies = cookies
+            console.print(
+                f"  [green]Harvested {len(cookies)} session cookies — "
+                f"using for Phase 3 execution[/green]"
+            )
+        else:
+            console.print(
+                "[yellow]No cookies harvested — falling back to HAR tokens[/yellow]"
+            )
 
     def _parse_har_files(self):
         """Parse HAR files and extract endpoints."""

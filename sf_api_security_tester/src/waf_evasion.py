@@ -337,7 +337,7 @@ class WafEvasion:
 
 
 class EvasionClient:
-    """HTTP client wrapper with built-in WAF evasion and rate limiting.
+    """HTTP client wrapper with built-in WAF evasion, rate limiting, and proxy support.
 
     Drop-in replacement for the plain httpx.Client in executor.py.
     """
@@ -347,19 +347,43 @@ class EvasionClient:
         evasion: WafEvasion | None = None,
         timeout: int = 30,
         ssl_verify: bool = True,
+        proxy_url: str | None = None,
     ):
         self.evasion = evasion or WafEvasion()
         self._client: httpx.Client | None = None
         self._timeout = timeout
         self._ssl_verify = ssl_verify
+        self._proxy_url = proxy_url
 
     def _get_client(self) -> httpx.Client:
         if self._client is None or self._client.is_closed:
-            self._client = httpx.Client(
-                timeout=httpx.Timeout(self._timeout),
-                verify=self._ssl_verify,
-                follow_redirects=False,
-            )
+            if self._proxy_url:
+                # Caido/Burp use MITM certificates — must disable SSL verification
+                client_kwargs: dict[str, Any] = {
+                    "timeout": httpx.Timeout(self._timeout),
+                    "verify": False,
+                    "follow_redirects": False,
+                    "proxy": self._proxy_url,
+                }
+            else:
+                client_kwargs = {
+                    "timeout": httpx.Timeout(self._timeout),
+                    "verify": self._ssl_verify,
+                    "follow_redirects": False,
+                }
+
+            try:
+                self._client = httpx.Client(**client_kwargs)
+                if self._proxy_url:
+                    logger.info(f"HTTP client initialised with proxy: {self._proxy_url} (verify=False for MITM)")
+            except Exception as e:
+                logger.warning(f"Proxy connection failed ({self._proxy_url}): {e}")
+                logger.warning("Falling back to direct connection (no proxy)")
+                self._client = httpx.Client(
+                    timeout=httpx.Timeout(self._timeout),
+                    verify=self._ssl_verify,
+                    follow_redirects=False,
+                )
         return self._client
 
     def request(
@@ -428,6 +452,30 @@ class EvasionClient:
             except SalesforceLimitExceededException:
                 # Re-raise immediately — do NOT retry or backoff
                 raise
+
+            except httpx.ProxyError as e:
+                # Proxy-specific failure — fall back to direct connection
+                logger.warning(f"Proxy error: {e}")
+                logger.warning("Falling back to direct connection (bypassing proxy)")
+                self._proxy_url = None
+                self._client = httpx.Client(
+                    timeout=httpx.Timeout(self._timeout),
+                    verify=self.evasion.enabled and True or True,
+                    follow_redirects=False,
+                )
+                # Retry once with direct connection
+                try:
+                    resp = self._client.request(
+                        method=method,
+                        url=url,
+                        headers=headers or {},
+                        content=content.encode("utf-8") if isinstance(content, str) else content,
+                        cookies=cookies,
+                    )
+                    self.evasion.record_request()
+                    return resp
+                except Exception:
+                    raise
 
             except httpx.TimeoutException:
                 logger.warning(f"Timeout on attempt {attempt + 1}: {url[:80]}")

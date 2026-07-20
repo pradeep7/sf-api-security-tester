@@ -1,7 +1,11 @@
-"""Executes mutated HTTP requests and captures raw request/response (V2 with WAF evasion)."""
+"""Executes mutated HTTP requests and captures raw request/response (V2 with WAF evasion).
+
+V3.1: Added upstream proxy support, smart telemetry headers, and cookie harvesting.
+"""
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
@@ -47,6 +51,8 @@ class RequestExecutor:
         ssl_verify: bool = True,
         dry_run: bool = False,
         waf_evasion_config: dict[str, Any] | None = None,
+        proxy_config: dict[str, Any] | None = None,
+        harvested_cookies: dict[str, str] | None = None,
     ):
         self.timeout = timeout
         self.retry_count = retry_count
@@ -54,6 +60,9 @@ class RequestExecutor:
         self.ssl_verify = ssl_verify
         self.dry_run = dry_run
         self.session_expired = False  # Flag: once set, halt all further requests
+
+        # Harvested cookies from manual auth
+        self.harvested_cookies: dict[str, str] = harvested_cookies or {}
 
         # Initialise WAF evasion
         waf_cfg = waf_evasion_config or {}
@@ -67,6 +76,14 @@ class RequestExecutor:
             enabled=waf_cfg.get("enabled", True),
         )
 
+        # Proxy configuration (Caido / Burp)
+        proxy_cfg = proxy_config or {}
+        proxy_enabled = proxy_cfg.get("enabled", False)
+        self._proxy_url: str | None = None
+        if proxy_enabled:
+            self._proxy_url = proxy_cfg.get("url", "http://127.0.0.1:8080")
+            logger.info(f"Upstream proxy enabled: {self._proxy_url}")
+
         self._evasion_client: EvasionClient | None = None
 
     def _get_client(self) -> EvasionClient:
@@ -76,6 +93,7 @@ class RequestExecutor:
                 evasion=self.waf_evasion,
                 timeout=self.timeout,
                 ssl_verify=self.ssl_verify,
+                proxy_url=self._proxy_url,
             )
         return self._evasion_client
 
@@ -111,13 +129,22 @@ class RequestExecutor:
         if "User-Agent" not in headers:
             headers["User-Agent"] = self.waf_evasion.get_user_agent()
 
+        # --- Smart Telemetry Headers (Feature 2) ---
+        telemetry = self._build_telemetry_headers(mutated_request)
+        headers.update(telemetry)
+
+        # --- Merge harvested cookies (Feature 4: HAR+Cookie hybrid) ---
+        cookies = dict(mutated_request.cookies)
+        if self.harvested_cookies:
+            cookies.update(self.harvested_cookies)
+
         # Build request
         http_request = HttpRequest(
             method=mutated_request.method.value,
             url=mutated_request.url,
             headers=headers,
             body=mutated_request.body,
-            cookies=mutated_request.cookies,
+            cookies=cookies,
         )
 
         last_exception = None
@@ -129,7 +156,7 @@ class RequestExecutor:
                     url=mutated_request.url,
                     headers=headers,
                     content=mutated_request.body.encode("utf-8") if mutated_request.body else None,
-                    cookies=mutated_request.cookies,
+                    cookies=cookies,
                 )
                 elapsed_ms = int((time.time() - start_time) * 1000)
 
@@ -208,6 +235,82 @@ class RequestExecutor:
         if not response_body:
             return True  # Empty 401 body is almost certainly session expiry
         return any(pat.search(response_body) for pat in _SESSION_EXPIRY_PATTERNS)
+
+    def _build_telemetry_headers(self, mutated_request: MutatedRequest) -> dict[str, str]:
+        """Build smart telemetry headers for proxy visibility.
+
+        Headers are added AFTER WAF evasion headers so they appear in proxy logs.
+        Raw payloads are NEVER sent — only MD5 hashes.
+        """
+        headers: dict[str, str] = {}
+
+        # Phase identification
+        test_case_id = mutated_request.test_case_id
+        if test_case_id.startswith("domxss"):
+            headers["X-SecTest-Phase"] = "Phase-0.5-DOM-XSS"
+        elif test_case_id.startswith("probe") or "probe" in mutated_request.mutation_description.lower():
+            headers["X-SecTest-Phase"] = "Phase-0.5-SafeProbe"
+        else:
+            headers["X-SecTest-Phase"] = "Phase-3-Mutation"
+
+        # OWASP category from test case ID or mutation type
+        mutation_desc = mutated_request.mutation_description.lower()
+        owasp_categories = []
+        if "soql" in mutation_desc or "sqli" in mutation_desc:
+            owasp_categories.append("A03")
+        if "bola" in mutation_desc or "idor" in mutation_desc:
+            owasp_categories.append("API1")
+        if "xss" in mutation_desc:
+            owasp_categories.append("A03")
+        if "ssrf" in mutation_desc:
+            owasp_categories.append("API7")
+        if "cors" in mutation_desc:
+            owasp_categories.append("API8")
+        if "auth" in mutation_desc:
+            owasp_categories.append("API2")
+        if "admin" in mutation_desc or "bfla" in mutation_desc:
+            owasp_categories.append("API3")
+        if "mass" in mutation_desc:
+            owasp_categories.append("A04")
+
+        if owasp_categories:
+            headers["X-SecTest-OWASP"] = ",".join(sorted(set(owasp_categories)))
+
+        # Test category
+        if "soql" in mutation_desc:
+            headers["X-SecTest-Category"] = "SOQL-Injection"
+        elif "sosl" in mutation_desc:
+            headers["X-SecTest-Category"] = "SOSL-Injection"
+        elif "xss" in mutation_desc:
+            headers["X-SecTest-Category"] = "XSS"
+        elif "bola" in mutation_desc or "idor" in mutation_desc:
+            headers["X-SecTest-Category"] = "BOLA"
+        elif "ssrf" in mutation_desc:
+            headers["X-SecTest-Category"] = "SSRF"
+        elif "cors" in mutation_desc:
+            headers["X-SecTest-Category"] = "CORS-Misconfiguration"
+        elif "header" in mutation_desc:
+            headers["X-SecTest-Category"] = "Security-Headers"
+        elif "auth" in mutation_desc:
+            headers["X-SecTest-Category"] = "Broken-Auth"
+        elif "mass" in mutation_desc:
+            headers["X-SecTest-Category"] = "Mass-Assignment"
+        elif "admin" in mutation_desc or "bfla" in mutation_desc:
+            headers["X-SecTest-Category"] = "BFLA"
+        elif "path" in mutation_desc:
+            headers["X-SecTest-Category"] = "Path-Traversal"
+        else:
+            headers["X-SecTest-Category"] = "Generic"
+
+        # Case ID
+        headers["X-SecTest-Case-ID"] = test_case_id[:64]
+
+        # Payload hash (MD5 — never send raw payload in headers)
+        payload_str = mutated_request.body or mutated_request.url
+        payload_hash = hashlib.md5(payload_str.encode("utf-8")).hexdigest()
+        headers["X-SecTest-Payload-Hash"] = payload_hash
+
+        return headers
 
     def _dry_run_execute(
         self, mutated_request: MutatedRequest

@@ -97,6 +97,11 @@ Examples:
         action="store_true",
         help="Run exploration with multiple credential sets to find role-based access differences",
     )
+    parser.add_argument(
+        "--manual-auth",
+        action="store_true",
+        help="Opens browser for manual SSO/JIT login, harvests cookies, and uses them for automated testing (ideal for complex Azure AD/SAML flows)",
+    )
 
     return parser.parse_args()
 
@@ -158,6 +163,7 @@ def main() -> int:
             explore_only=args.explore_only,
             skip_explore=args.skip_explore,
             role_compare=args.role_compare,
+            manual_auth=args.manual_auth,
         )
         orchestrator.setup()
 

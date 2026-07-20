@@ -226,6 +226,15 @@ role_comparison:
       credentials_key: "user_creds"   # Key in credentials.yaml
 
 # ---------------------------------------------------------------------------
+# Upstream Proxy (Caido / Burp Suite Integration)
+# ---------------------------------------------------------------------------
+# Routes all HTTP traffic through a proxy for inspection and logging.
+upstream_proxy:
+  enabled: false                      # Set true to route through proxy
+  url: "http://127.0.0.1:8080"       # Default Caido/Burp Suite port
+  proxy_type: "http"                 # http | socks5
+
+# ---------------------------------------------------------------------------
 # LLM Verification (Hybrid AI Architecture — V2.2)
 # ---------------------------------------------------------------------------
 # The local evaluator outputs POTENTIAL_FINDING for anomalies.
