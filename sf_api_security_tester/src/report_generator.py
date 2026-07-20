@@ -508,8 +508,8 @@ footer {
     margin-bottom: 8px;
 }
 
-.vv-confirmed { background: rgba(248,81,73,0.2); color: var(--accent-red); border: 1px solid var(--accent-red); }
-.vv-reflected { background: rgba(210,153,34,0.2); color: var(--accent-yellow); border: 1px solid var(--accent-yellow); }
+.vv-confirmed_xss { background: rgba(248,81,73,0.2); color: var(--accent-red); border: 1px solid var(--accent-red); }
+.vv-reflected_not_executed { background: rgba(210,153,34,0.2); color: var(--accent-yellow); border: 1px solid var(--accent-yellow); }
 .vv-data_exposure { background: rgba(240,136,62,0.2); color: var(--accent-orange); border: 1px solid var(--accent-orange); }
 .vv-inconclusive { background: var(--bg-secondary); color: var(--text-secondary); border: 1px solid var(--border); }
 .vv-clean { background: rgba(63,185,80,0.15); color: var(--accent-green); border: 1px solid var(--accent-green); }
@@ -1106,12 +1106,24 @@ footer {
         </div>
         {% endif %}
 
-        <!-- Visual DAST Evidence (V3.0) -->
+        <div class="detail-section">
+            <h4>Evidence Metadata</h4>
+            <table class="summary-table">
+                <tr><td>Evidence ID</td><td>{{ f.evidence.id }}</td></tr>
+                <tr><td>Execution Time</td><td>{{ f.evidence.execution_time_ms }}ms</td></tr>
+                <tr><td>Test Case ID</td><td>{{ f.evidence.test_case_id }}</td></tr>
+                <tr><td>Endpoint ID</td><td>{{ f.evidence.endpoint_id }}</td></tr>
+                <tr><td>Timestamp</td><td>{{ f.evidence.timestamp.strftime('%Y-%m-%d %H:%M:%S') if f.evidence.timestamp else 'N/A' }}</td></tr>
+            </table>
+        </div>
+        {% endif %}
+
+        <!-- Visual DAST Evidence (V3.0) - outside f.evidence block -->
         {% if f.visual_verdict %}
         <div class="detail-section">
             <h4>Visual DAST Analysis</h4>
             <div class="visual-evidence">
-                {% if f.evidence.screenshot_path %}
+                {% if f.evidence and f.evidence.screenshot_path %}
                 <div class="visual-evidence-img">
                     <img src="{{ f.evidence.screenshot_path }}" alt="Visual DAST Screenshot" loading="lazy" onclick="window.open(this.src, '_blank')">
                 </div>
@@ -1131,18 +1143,6 @@ footer {
                     {% endif %}
                 </div>
             </div>
-        </div>
-        {% endif %}
-
-        <div class="detail-section">
-            <h4>Evidence Metadata</h4>
-            <table class="summary-table">
-                <tr><td>Evidence ID</td><td>{{ f.evidence.id }}</td></tr>
-                <tr><td>Execution Time</td><td>{{ f.evidence.execution_time_ms }}ms</td></tr>
-                <tr><td>Test Case ID</td><td>{{ f.evidence.test_case_id }}</td></tr>
-                <tr><td>Endpoint ID</td><td>{{ f.evidence.endpoint_id }}</td></tr>
-                <tr><td>Timestamp</td><td>{{ f.evidence.timestamp.strftime('%Y-%m-%d %H:%M:%S') if f.evidence.timestamp else 'N/A' }}</td></tr>
-            </table>
         </div>
         {% endif %}
 

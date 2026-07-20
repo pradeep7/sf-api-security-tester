@@ -24,6 +24,7 @@ from .auth_handoff import AuthHandoff
 from .autonomous_explorer import AutonomousExplorer
 from .dom_xss_auditor import DOMXSSAuditor
 from .endpoint_classifier import EndpointClassifier
+from .har_generator import HarGenerator
 from .evidence_collector import EvidenceCollector
 from .executor import RequestExecutor
 from .feature_inventory import FeatureInventoryBuilder
@@ -32,6 +33,7 @@ from .har_parser import parse_har_files
 from .llm_verifier import LLMVerifier
 from .models import (
     APIEndpoint,
+    ConfidenceLevel,
     ExecutiveSummary,
     Evidence,
     FeatureInventory,
@@ -96,6 +98,7 @@ class Orchestrator:
         self.dom_xss_auditor: DOMXSSAuditor | None = None
         self.role_manager: RoleManager | None = None
         self.auth_handoff: AuthHandoff | None = None
+        self.har_generator: HarGenerator | None = None
         self.harvested_cookies: dict[str, str] = {}
 
         # V3.0 State
@@ -211,6 +214,7 @@ class Orchestrator:
         self.role_manager = RoleManager(self.config)
         self.auth_handoff = AuthHandoff(self.config)
         self.auth_handoff.enabled = self.manual_auth
+        self.har_generator = HarGenerator(self.config)
 
     def run(self) -> TestReport:
         """Execute the full V3.0 security testing pipeline."""
@@ -578,6 +582,36 @@ class Orchestrator:
             console.print(
                 "[yellow]No cookies harvested — falling back to HAR tokens[/yellow]"
             )
+
+    # ------------------------------------------------------------------
+    # Phase -1: HAR Generation (Feature: Live Traffic Capture)
+    # ------------------------------------------------------------------
+    def _run_har_generation(self, target_url: str, manual_auth: bool = False):
+        """Generate a HAR file from live browser traffic.
+
+        Uses Playwright's native HAR recording while routing through
+        the configured upstream proxy (ZAP/Caido/Burp).
+        """
+        if not self.har_generator:
+            return
+
+        output_path = self.har_generator.default_output_path
+        console.print(f"  [cyan]Phase -1: Recording live traffic to {output_path}...[/cyan]")
+
+        result = self.har_generator.generate(
+            target_url=target_url,
+            output_path=output_path,
+            use_manual_auth=manual_auth,
+        )
+
+        if result:
+            console.print(f"  [green]HAR generated: {result}[/green]")
+            console.print(
+                f"\n  [dim]Run the full attack pipeline:[/dim]\n"
+                f"  [cyan]python main.py --har {result} -v[/cyan]"
+            )
+        else:
+            console.print("  [red]HAR generation failed[/red]")
 
     def _parse_har_files(self):
         """Parse HAR files and extract endpoints."""

@@ -102,6 +102,16 @@ Examples:
         action="store_true",
         help="Opens browser for manual SSO/JIT login, harvests cookies, and uses them for automated testing (ideal for complex Azure AD/SAML flows)",
     )
+    parser.add_argument(
+        "--generate-har",
+        action="store_true",
+        help="Phase -1: Record live browser traffic as a HAR file (use with --target)",
+    )
+    parser.add_argument(
+        "--target",
+        type=str,
+        help="Target URL for HAR generation or exploration (required with --generate-har)",
+    )
 
     return parser.parse_args()
 
@@ -131,6 +141,42 @@ def main() -> int:
         console.print(f"[red]Config file not found: {config_path}[/red]")
         return 1
 
+    # --- Phase -1: HAR Generation Mode ---
+    if args.generate_har:
+        if not args.target:
+            console.print("[red]Error: --target <url> is required when using --generate-har[/red]")
+            return 1
+
+        console.print(f"[cyan]Phase -1: HAR Generation Mode[/cyan]")
+        console.print(f"[dim]Target: {args.target}[/dim]")
+
+        from src.har_generator import HarGenerator
+        import yaml
+
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+
+        har_gen = HarGenerator(config)
+        output_path = args.har[0] if args.har else config.get("har_generation", {}).get("default_output_path", "output/live_crawl.har")
+
+        result = har_gen.generate(
+            target_url=args.target,
+            output_path=output_path,
+            use_manual_auth=args.manual_auth,
+        )
+
+        if result:
+            console.print(f"\n[green]HAR file successfully generated: {result}[/green]")
+            console.print(
+                f"\n[dim]You can now run the full attack pipeline using:[/dim]\n"
+                f"[cyan]python main.py --har {result} -v[/cyan]"
+            )
+            return 0
+        else:
+            console.print("[red]HAR generation failed[/red]")
+            return 1
+
+    # --- Normal Pipeline Mode ---
     # Resolve HAR files
     har_files = []
     if args.har:
@@ -146,6 +192,7 @@ def main() -> int:
         console.print("[yellow]No HAR files found. Place .har files in the input/ directory.[/yellow]")
         console.print("[dim]Example: Copy browser HAR exports to input/assist_portal.har[/dim]")
         console.print("[dim]Or use --explore-only to map the application first.[/dim]")
+        console.print("[dim]Or use --generate-har --target <url> to capture live traffic.[/dim]")
         return 1
 
     if har_files:

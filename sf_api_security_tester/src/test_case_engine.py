@@ -14,7 +14,6 @@ from .models import (
     EndpointCategory,
     FindingVerdict,
     Severity,
-    TestCase,
 )
 
 

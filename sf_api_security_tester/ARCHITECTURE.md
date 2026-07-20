@@ -16,6 +16,7 @@ The entire flow is managed by `src/orchestrator.py`. The execution lifecycle fol
 
 | Phase | Name | Module(s) | Purpose |
 |-------|------|-----------|---------|
+| **-1** | HAR Generation | `har_generator.py` | Records live browser traffic as HAR via Playwright native recording (with proxy support) |
 | **0** | Autonomous Explore | `autonomous_explorer.py` | Playwright BFS discovers every page; Vision LLM understands context |
 | **0.5** | Feature Inventory & Safe Probing | `feature_inventory.py`, `test_planner.py`, `safe_executor.py`, `dom_xss_auditor.py` | Maps risk surfaces; executes harmless probes to verify reflection |
 | **1** | HAR Parse (Enriched) | `har_parser.py` | Parses browser traffic; enriched with Phase 0 discoveries |
@@ -67,7 +68,17 @@ This is the heart of the framework's type safety. Key models include:
 - `TestPlan` / `PlannedTest`: Structured test plan with safe probes and real mutation strategies.
 - `AuditEvent`: Timestamped record of every navigation, click, probe, and LLM call for compliance.
 
-### 2.2 The Autonomous Explorer (`src/autonomous_explorer.py`)
+### 2.2 HAR Generator (`src/har_generator.py`)
+
+Phase -1: Captures live browser traffic as HAR files using Playwright's native recording.
+
+- Uses `context.record_har_path` and `context.record_har_mode` for native HAR capture
+- Routes traffic through upstream proxy (ZAP/Caido/Burp) via `proxy={"server": url}`
+- **Manual mode:** Opens headed browser, waits for user to browse, saves HAR on ENTER
+- **Auto mode:** Simple BFS clicking `<a>` links (max 5 pages) to generate baseline traffic
+- Finalizes HAR on `context.close()` — Playwright handles the actual file writing
+
+### 2.3 The Autonomous Explorer (`src/autonomous_explorer.py`)
 
 The "Eyes" of the system. This module uses Playwright to drive a real browser through the Salesforce Lightning portal.
 
@@ -313,6 +324,9 @@ YAML-based security rules mapping to OWASP Top 10. Each test case defines:
 
 | Flag | Description |
 |------|-------------|
+| `--generate-har` | Phase -1: Record live browser traffic as a HAR file (use with `--target`) |
+| `--target <url>` | Target URL for HAR generation or exploration (required with `--generate-har`) |
+| `--manual-auth` | Opens browser for manual SSO/JIT login, harvests cookies, and uses them for automated testing |
 | `--explore-only` | Run Phase 0 & 0.5 only — map the application without attack testing |
 | `--skip-explore` | Skip Phase 0, rely purely on HAR files (V2.x legacy behavior) |
 | `--role-compare` | Run exploration with multiple credential sets to find privilege escalation |
@@ -320,6 +334,21 @@ YAML-based security rules mapping to OWASP Top 10. Each test case defines:
 | `--har <files>` | Specify HAR files (overrides auto-discovery in `input/`) |
 | `--verbose` / `-v` | Enable debug logging |
 | `--no-screenshots` | Disable Playwright screenshot capture |
+
+### Use Case 0: HAR Generation (Phase -1)
+
+Record live browser traffic through a proxy (ZAP/Caido/Burp) for subsequent analysis.
+
+```bash
+# Manual browsing mode (user logs in, clicks around)
+python main.py --generate-har --target https://your-portal.salesforce.com --manual-auth
+
+# Auto-browsing mode (clicks links automatically)
+python main.py --generate-har --target https://your-portal.salesforce.com
+
+# Then use the generated HAR for the full attack pipeline
+python main.py --har output/live_crawl.har -v
+```
 
 ### Use Case 1: Safe Recon (Zero Attacks)
 

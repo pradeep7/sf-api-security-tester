@@ -231,8 +231,18 @@ role_comparison:
 # Routes all HTTP traffic through a proxy for inspection and logging.
 upstream_proxy:
   enabled: false                      # Set true to route through proxy
-  url: "http://127.0.0.1:8080"       # Default Caido/Burp Suite port
+  url: "http://127.0.0.1:8080"       # Default Caido/Burp/ZAP port
   proxy_type: "http"                 # http | socks5
+
+# ---------------------------------------------------------------------------
+# HAR Generation (Phase -1: Live Traffic Capture)
+# ---------------------------------------------------------------------------
+# Uses Playwright's native HAR recording to capture live browser traffic.
+har_generation:
+  enabled: true
+  default_output_path: "output/live_crawl.har"
+  record_mode: "full"                # "full" records all traffic; "minimal" records only API calls
+  headless: false                   # Must be false — user needs to see the browser
 
 # ---------------------------------------------------------------------------
 # LLM Verification (Hybrid AI Architecture — V2.2)
