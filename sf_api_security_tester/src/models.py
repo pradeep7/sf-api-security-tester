@@ -43,6 +43,7 @@ class Severity(str, Enum):
 class FindingVerdict(str, Enum):
     FINDING = "Finding"
     NOT_FINDING = "Not Finding"
+    POTENTIAL_FINDING = "Potential Finding"
     NA = "NA"
     ERROR = "Error"
 
@@ -191,6 +192,12 @@ class FindingResult(BaseModel):
     evidence: Optional[Evidence] = None
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     error_message: Optional[str] = None
+    # LLM verification fields (populated by LLMVerifier)
+    llm_verified: bool = False
+    llm_verdict: Optional[str] = None          # TRUE_POSITIVE / FALSE_POSITIVE / NEEDS_MANUAL_REVIEW
+    llm_confidence: Optional[float] = None     # 0.0 - 1.0
+    llm_reasoning: Optional[str] = None
+    llm_remediation: Optional[str] = None      # Salesforce-specific remediation advice
 
 
 # ---------------------------------------------------------------------------
@@ -202,12 +209,16 @@ class ExecutiveSummary(BaseModel):
     total_endpoints: int = 0
     findings_count: int = 0
     not_findings_count: int = 0
+    potential_findings_count: int = 0
     na_count: int = 0
     errors_count: int = 0
     critical_count: int = 0
     high_count: int = 0
     medium_count: int = 0
     low_count: int = 0
+    llm_true_positives: int = 0
+    llm_false_positives: int = 0
+    llm_manual_review: int = 0
     scan_start: Optional[datetime] = None
     scan_end: Optional[datetime] = None
     portals_tested: list[str] = Field(default_factory=list)

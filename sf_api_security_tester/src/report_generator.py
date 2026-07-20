@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,61 @@ from .models import (
     Severity,
     TestReport,
 )
+
+
+# ---------------------------------------------------------------------------
+# OWASP standards metadata: display name + ordered category list
+# ---------------------------------------------------------------------------
+_OWASP_STANDARDS: dict[str, dict[str, Any]] = {
+    "owasp_api_2023": {
+        "full_name": "OWASP API Security Top 10 (2023)",
+        "short_name": "API Top 10",
+        "categories": [
+            ("API1", "Broken Object Level Authorization"),
+            ("API2", "Broken Authentication"),
+            ("API3", "Broken Function Level Authorization"),
+            ("API4", "Unrestricted Resource Consumption"),
+            ("API5", "Broken Function Level Authorization"),
+            ("API6", "Unrestricted Access to Sensitive Business Flows"),
+            ("API7", "Server Side Request Forgery"),
+            ("API8", "Security Misconfiguration"),
+            ("API9", "Improper Inventory Management"),
+            ("API10", "Unsafe Consumption of APIs"),
+        ],
+    },
+    "owasp_web_2021": {
+        "full_name": "OWASP Web Application Top 10 (2021)",
+        "short_name": "Web Top 10",
+        "categories": [
+            ("A01", "Broken Access Control"),
+            ("A02", "Cryptographic Failures"),
+            ("A03", "Injection"),
+            ("A04", "Insecure Design"),
+            ("A05", "Security Misconfiguration"),
+            ("A06", "Vulnerable and Outdated Components"),
+            ("A07", "Identification and Authentication Failures"),
+            ("A08", "Software and Data Integrity Failures"),
+            ("A09", "Security Logging and Monitoring Failures"),
+            ("A10", "Server-Side Request Forgery"),
+        ],
+    },
+    "owasp_scp_v2": {
+        "full_name": "OWASP Secure Coding Practices (v2)",
+        "short_name": "Secure Coding",
+        "categories": [
+            ("5.1", "Input Validation"),
+            ("5.2", "Output Encoding"),
+            ("5.3", "Authentication"),
+            ("5.4", "Access Control"),
+            ("5.5", "Session Management"),
+            ("5.6", "Error Handling and Logging"),
+            ("5.7", "Data Protection"),
+            ("5.8", "Communication Security"),
+            ("5.9", "System Configuration"),
+            ("5.10", "Database Security"),
+        ],
+    },
+}
 
 
 # ---------------------------------------------------------------------------
@@ -318,6 +374,156 @@ footer {
     .summary-grid { grid-template-columns: repeat(2, 1fr); }
     .finding-header { flex-wrap: wrap; }
 }
+
+/* --- OWASP Compliance Matrix --- */
+.compliance-section { margin-bottom: 30px; }
+
+.compliance-standard {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 20px;
+    overflow: hidden;
+}
+
+.compliance-standard-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.compliance-standard-header:hover { background: #282e38; }
+
+.compliance-standard-header h3 {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.compliance-standard-header .std-short {
+    font-size: 11px;
+    color: var(--accent-purple);
+    padding: 2px 8px;
+    background: rgba(188,140,255,0.1);
+    border: 1px solid rgba(188,140,255,0.3);
+    border-radius: 4px;
+    font-family: monospace;
+}
+
+.compliance-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.compliance-table th,
+.compliance-table td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+    font-size: 13px;
+}
+
+.compliance-table th {
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-size: 11px;
+    position: sticky;
+    top: 0;
+}
+
+.compliance-table td:first-child,
+.compliance-table th:first-child {
+    text-align: left;
+    min-width: 200px;
+}
+
+.compliance-table tr:last-child td { border-bottom: none; }
+.compliance-table tr:hover td { background: rgba(88,166,255,0.04); }
+
+.compliance-table .cat-code {
+    font-family: monospace;
+    font-weight: 600;
+    color: var(--accent-blue);
+    white-space: nowrap;
+}
+
+.compliance-table .cat-name {
+    color: var(--text-primary);
+}
+
+/* Coverage bar */
+.cov-cell { min-width: 110px; }
+
+.cov-bar-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.cov-bar {
+    flex: 1;
+    height: 8px;
+    background: var(--bg-primary);
+    border-radius: 4px;
+    overflow: hidden;
+    min-width: 50px;
+}
+
+.cov-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.4s ease;
+}
+
+.cov-bar-fill.cov-100 { background: var(--accent-green); }
+.cov-bar-fill.cov-high { background: var(--accent-blue); }
+.cov-bar-fill.cov-med { background: var(--accent-yellow); }
+.cov-bar-fill.cov-low { background: var(--accent-red); }
+.cov-bar-fill.cov-zero { background: var(--text-muted); }
+
+.cov-pct {
+    font-size: 12px;
+    font-weight: 600;
+    min-width: 38px;
+    text-align: right;
+}
+
+.cov-pct.pct-100 { color: var(--accent-green); }
+.cov-pct.pct-high { color: var(--accent-blue); }
+.cov-pct.pct-med { color: var(--accent-yellow); }
+.cov-pct.pct-low { color: var(--accent-red); }
+.cov-pct.pct-zero { color: var(--text-muted); }
+
+/* Count badges in cells */
+.cnt-badge {
+    display: inline-block;
+    min-width: 22px;
+    padding: 1px 6px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.cnt-total { color: var(--text-secondary); }
+.cnt-passed { color: var(--accent-green); }
+.cnt-finding { color: var(--accent-red); background: rgba(248,81,73,0.1); }
+.cnt-na { color: var(--text-muted); }
+.cnt-error { color: var(--accent-yellow); }
+
+/* Summary row */
+.compliance-table tr.compliance-total td {
+    background: var(--bg-tertiary);
+    font-weight: 600;
+    border-top: 2px solid var(--border);
+}
 </style>
 </head>
 <body>
@@ -375,6 +581,79 @@ footer {
         <span class="number">{{ summary.low_count }}</span>
         <span class="label">Low</span>
     </div>
+</div>
+
+<!-- OWASP Compliance Coverage Matrix -->
+<h2 class="section-title">OWASP Compliance Coverage Matrix</h2>
+<div class="compliance-section">
+{% for std_key, std in compliance_data.items() %}
+<div class="compliance-standard">
+    <div class="compliance-standard-header" onclick="toggleCompliance('{{ std_key }}')">
+        <div style="display:flex;align-items:center;gap:12px;">
+            <button class="toggle-btn" id="cov-toggle-{{ std_key }}">&#x25B6;</button>
+            <h3>{{ std.full_name }}</h3>
+        </div>
+        <span class="std-short">{{ std.short_name }}</span>
+    </div>
+    <div id="cov-details-{{ std_key }}" style="display:none;">
+    <table class="compliance-table">
+        <thead>
+            <tr>
+                <th style="text-align:left;">Category</th>
+                <th>Total</th>
+                <th>Executed</th>
+                <th>Passed</th>
+                <th>Findings</th>
+                <th>N/A</th>
+                <th>Errors</th>
+                <th class="cov-cell">Coverage</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for cat in std.rows %}
+            <tr>
+                <td>
+                    <span class="cat-code">{{ cat.code }}</span>
+                    <span class="cat-name">&mdash; {{ cat.name }}</span>
+                </td>
+                <td><span class="cnt-badge cnt-total">{{ cat.total }}</span></td>
+                <td><span class="cnt-badge cnt-total">{{ cat.executed }}</span></td>
+                <td><span class="cnt-badge cnt-passed">{{ cat.passed }}</span></td>
+                <td><span class="cnt-badge cnt-finding">{{ cat.findings }}</span></td>
+                <td><span class="cnt-badge cnt-na">{{ cat.na }}</span></td>
+                <td><span class="cnt-badge cnt-error">{{ cat.errors }}</span></td>
+                <td class="cov-cell">
+                    <div class="cov-bar-wrap">
+                        <div class="cov-bar">
+                            <div class="cov-bar-fill {{ cat.cov_class }}" style="width:{{ cat.coverage }}%"></div>
+                        </div>
+                        <span class="cov-pct {{ cat.cov_pct_class }}">{{ cat.coverage }}%</span>
+                    </div>
+                </td>
+            </tr>
+        {% endfor %}
+            <tr class="compliance-total">
+                <td>TOTAL</td>
+                <td><span class="cnt-badge cnt-total">{{ std.totals.total }}</span></td>
+                <td><span class="cnt-badge cnt-total">{{ std.totals.executed }}</span></td>
+                <td><span class="cnt-badge cnt-passed">{{ std.totals.passed }}</span></td>
+                <td><span class="cnt-badge cnt-finding">{{ std.totals.findings }}</span></td>
+                <td><span class="cnt-badge cnt-na">{{ std.totals.na }}</span></td>
+                <td><span class="cnt-badge cnt-error">{{ std.totals.errors }}</span></td>
+                <td class="cov-cell">
+                    <div class="cov-bar-wrap">
+                        <div class="cov-bar">
+                            <div class="cov-bar-fill {{ std.totals.cov_class }}" style="width:{{ std.totals.coverage }}%"></div>
+                        </div>
+                        <span class="cov-pct {{ std.totals.cov_pct_class }}">{{ std.totals.coverage }}%</span>
+                    </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    </div>
+</div>
+{% endfor %}
 </div>
 
 <!-- Findings Table -->
@@ -492,6 +771,18 @@ function toggleDetails(index) {
         toggle.classList.add('open');
     }
 }
+
+function toggleCompliance(stdKey) {
+    const el = document.getElementById('cov-details-' + stdKey);
+    const btn = document.getElementById('cov-toggle-' + stdKey);
+    if (el.style.display === 'none') {
+        el.style.display = 'block';
+        btn.classList.add('open');
+    } else {
+        el.style.display = 'none';
+        btn.classList.remove('open');
+    }
+}
 </script>
 </body>
 </html>"""
@@ -521,6 +812,9 @@ class ReportGenerator:
 
     def _generate_json(self, report: TestReport) -> Path:
         """Generate JSON report."""
+        # Build compliance matrix for JSON export
+        compliance_matrix = self._build_compliance_matrix(report.all_results)
+
         report_data = {
             "project_name": report.project_name,
             "generated_at": report.generated_at.isoformat(),
@@ -539,6 +833,7 @@ class ReportGenerator:
                 "scan_end": report.executive_summary.scan_end.isoformat() if report.executive_summary.scan_end else None,
                 "portals_tested": report.executive_summary.portals_tested,
             },
+            "owasp_compliance_matrix": compliance_matrix,
             "findings": [self._finding_to_dict(f) for f in report.findings],
             "all_results": [self._finding_to_dict(f) for f in report.all_results],
         }
@@ -569,10 +864,14 @@ class ReportGenerator:
             ),
         )
 
+        # Build OWASP Compliance Coverage Matrix
+        compliance_data = self._build_compliance_matrix(report.all_results)
+
         html_content = template.render(
             report=report,
             summary=report.executive_summary,
             findings_list=all_findings,
+            compliance_data=compliance_data,
         )
 
         html_path = self.output_dir / "security_report.html"
@@ -580,6 +879,171 @@ class ReportGenerator:
             f.write(html_content)
 
         return html_path
+
+    # ------------------------------------------------------------------
+    # OWASP Compliance Coverage Matrix
+    # ------------------------------------------------------------------
+    def _build_compliance_matrix(
+        self, all_results: list[FindingResult]
+    ) -> dict[str, dict[str, Any]]:
+        """Build the compliance coverage matrix from all test results.
+
+        Groups results by OWASP standard and category, then calculates
+        executed/passed/finding/na/error counts and coverage percentage.
+        """
+        # Count results per (standard_key, category_code)
+        counts: dict[tuple[str, str], dict[str, int]] = defaultdict(
+            lambda: {"executed": 0, "passed": 0, "findings": 0, "na": 0, "errors": 0}
+        )
+
+        for result in all_results:
+            # Determine which standard this result belongs to
+            cat = result.owasp_category or ""
+            std_key = self._categorise_to_standard(cat)
+
+            # Extract category code (e.g. "API1", "A03", "5.1")
+            code = self._extract_category_code(cat, std_key)
+            if code:
+                bucket = counts[(std_key, code)]
+                bucket["executed"] += 1
+                if result.verdict == FindingVerdict.NOT_FINDING:
+                    bucket["passed"] += 1
+                elif result.verdict == FindingVerdict.FINDING:
+                    bucket["findings"] += 1
+                elif result.verdict == FindingVerdict.NA:
+                    bucket["na"] += 1
+                elif result.verdict == FindingVerdict.ERROR:
+                    bucket["errors"] += 1
+
+        # Build output structure
+        output: dict[str, dict[str, Any]] = {}
+
+        for std_key, std_meta in _OWASP_STANDARDS.items():
+            rows = []
+            totals = {"total": 0, "executed": 0, "passed": 0, "findings": 0, "na": 0, "errors": 0}
+
+            for cat_code, cat_name in std_meta["categories"]:
+                c = counts.get((std_key, cat_code), {})
+                executed = c.get("executed", 0)
+                passed = c.get("passed", 0)
+                findings = c.get("findings", 0)
+                na = c.get("na", 0)
+                errors = c.get("errors", 0)
+
+                # Coverage = (passed + findings + na) / executed * 100
+                # If nothing was executed, coverage is 0
+                meaningful = passed + findings + na
+                coverage = round(meaningful / executed * 100) if executed > 0 else 0
+
+                cov_class, cov_pct_class = self._coverage_classes(coverage)
+
+                rows.append({
+                    "code": cat_code,
+                    "name": cat_name,
+                    "total": executed,  # total defined = executed for display
+                    "executed": executed,
+                    "passed": passed,
+                    "findings": findings,
+                    "na": na,
+                    "errors": errors,
+                    "coverage": coverage,
+                    "cov_class": cov_class,
+                    "cov_pct_class": cov_pct_class,
+                })
+
+                totals["total"] += executed
+                totals["executed"] += executed
+                totals["passed"] += passed
+                totals["findings"] += findings
+                totals["na"] += na
+                totals["errors"] += errors
+
+            # Compute totals coverage
+            total_meaningful = totals["passed"] + totals["findings"] + totals["na"]
+            totals["coverage"] = (
+                round(total_meaningful / totals["executed"] * 100)
+                if totals["executed"] > 0
+                else 0
+            )
+            totals["cov_class"], totals["cov_pct_class"] = self._coverage_classes(
+                totals["coverage"]
+            )
+
+            output[std_key] = {
+                "full_name": std_meta["full_name"],
+                "short_name": std_meta["short_name"],
+                "rows": rows,
+                "totals": totals,
+            }
+
+        return output
+
+    @staticmethod
+    def _categorise_to_standard(owasp_category: str) -> str:
+        """Map an owasp_category string to its standard key."""
+        cat_upper = owasp_category.upper()
+        if cat_upper.startswith("API"):
+            return "owasp_api_2023"
+        if cat_upper.startswith("A0") or cat_upper.startswith("A1"):
+            return "owasp_web_2021"
+        if "." in owasp_category and owasp_category[0].isdigit():
+            return "owasp_scp_v2"
+        # Heuristic fallback based on name keywords
+        cat_lower = owasp_category.lower()
+        if "api" in cat_lower:
+            return "owasp_api_2023"
+        if "scg" in cat_lower or "secure" in cat_lower or "input" in cat_lower:
+            return "owasp_scp_v2"
+        return "owasp_web_2021"
+
+    @staticmethod
+    def _extract_category_code(owasp_category: str, std_key: str) -> str | None:
+        """Extract the category code from the owasp_category string.
+
+        Examples:
+            'API1:2023' -> 'API1'
+            'A03:2021'  -> 'A03'
+            'SCG-InputValidation' -> '5.1'
+            '5.1'       -> '5.1'
+        """
+        cat = owasp_category.strip()
+
+        # Direct code (e.g. "API1", "A03")
+        if cat[:3] in ("API", "api"):
+            return cat.split(":")[0].split("-")[0].split(" ")[0].upper()
+        if len(cat) >= 3 and cat[0] == "A" and cat[1].isdigit():
+            return cat.split(":")[0].split("-")[0].split(" ")[0].upper()
+
+        # SCG-style: extract the numeric part (e.g. "SCG-InputValidation" -> "5.1" or "SCG-IV")
+        parts = cat.split("-")
+        if len(parts) >= 2:
+            # Try to find a matching code in the standard's categories
+            search = parts[0].strip().upper()
+            if std_key in _OWASP_STANDARDS:
+                for code, _ in _OWASP_STANDARDS[std_key]["categories"]:
+                    if code.upper() == search:
+                        return code
+            # Fallback: return the first part
+            return parts[0].strip()
+
+        # Bare number like "5.1"
+        if "." in cat and cat[0].isdigit():
+            return cat
+
+        return cat.split(":")[0] if cat else None
+
+    @staticmethod
+    def _coverage_classes(coverage: int) -> tuple[str, str]:
+        """Return (bar_css_class, pct_css_class) for a coverage percentage."""
+        if coverage >= 100:
+            return "cov-100", "pct-100"
+        if coverage >= 75:
+            return "cov-high", "pct-high"
+        if coverage >= 50:
+            return "cov-med", "pct-med"
+        if coverage > 0:
+            return "cov-low", "pct-low"
+        return "cov-zero", "pct-zero"
 
     def _finding_to_dict(self, finding: FindingResult) -> dict:
         """Convert FindingResult to a JSON-serializable dict."""

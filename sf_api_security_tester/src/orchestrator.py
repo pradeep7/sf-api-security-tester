@@ -20,6 +20,7 @@ from .evidence_collector import EvidenceCollector
 from .executor import RequestExecutor
 from .finding_evaluator import FindingEvaluator
 from .har_parser import parse_har_files
+from .llm_verifier import LLMVerifier
 from .models import (
     APIEndpoint,
     ExecutiveSummary,
@@ -56,6 +57,7 @@ class Orchestrator:
         self.evidence_collector: EvidenceCollector | None = None
         self.evaluator: FindingEvaluator | None = None
         self.report_generator: ReportGenerator | None = None
+        self.llm_verifier: LLMVerifier | None = None
 
         # State
         self.endpoints: list[APIEndpoint] = []
@@ -148,6 +150,9 @@ class Orchestrator:
             output_dir=reporting_config.get("output_dir", "output/reports")
         )
 
+        # LLM Verifier (Hybrid AI — only reviews FINDING verdicts)
+        self.llm_verifier = LLMVerifier(self.config)
+
     def run(self) -> TestReport:
         """Execute the full security testing pipeline."""
         self.scan_start = datetime.utcnow()
@@ -190,7 +195,33 @@ class Orchestrator:
             self._execute_tests(progress, task)
             progress.update(task, completed=len(self.execution_plan))
 
-            # Step 5: Generate reports
+            # Step 5: LLM verification of potential findings (Hybrid AI V2.2)
+            potential_count = sum(
+                1 for r in self.results
+                if r.verdict == FindingVerdict.POTENTIAL_FINDING
+            )
+
+            if potential_count > 0:
+                if self.llm_verifier and self.llm_verifier.enabled:
+                    task = progress.add_task(
+                        f"[magenta]AI Brain: Verifying {potential_count} potential findings...",
+                        total=None,
+                    )
+                    self._verify_potential_findings_with_llm()
+                    progress.update(task, completed=1, total=1)
+                else:
+                    # Fallback: LLM disabled — promote all POTENTIAL to FINDING
+                    logger.info(
+                        f"LLM disabled: promoting {potential_count} "
+                        f"POTENTIAL_FINDINGs to FINDINGs (V2.1 fallback)"
+                    )
+                    self.results = self.llm_verifier.promote_unverified(
+                        self.results
+                    ) if self.llm_verifier else self._promote_potential_fallback()
+            else:
+                logger.info("No POTENTIAL_FINDINGs — LLM verification not needed")
+
+            # Step 6: Generate reports
             task = progress.add_task("[cyan]Generating reports...", total=None)
             report = self._generate_reports()
             progress.update(task, completed=1, total=1)
@@ -452,20 +483,73 @@ class Orchestrator:
             Severity.LOW: 3,
         }.get(severity, 99)
 
+    def _verify_potential_findings_with_llm(self):
+        """Send POTENTIAL_FINDING verdicts to the LLM for verification.
+
+        The LLM acts as a "Senior Security Engineer" reviewing each anomaly
+        to confirm it's a true positive, mark it as false positive, or flag
+        it for manual review.  Only POTENTIAL_FINDING results are sent —
+        PASSED/NA/ERROR are never sent (cost control).
+        """
+        if not self.llm_verifier or not self.llm_verifier.enabled:
+            return
+
+        console.print(
+            "  [magenta]AI Brain: Running LLM verification on "
+            "potential findings...[/magenta]"
+        )
+
+        try:
+            self.results = self.llm_verifier.verify_batch(self.results)
+        except Exception as e:
+            logger.error(f"LLM verification batch failed: {e}")
+            console.print(f"  [yellow]LLM batch error: {e} — falling back to auto-promote[/yellow]")
+            self.results = self._promote_potential_fallback()
+            return
+
+        # Print LLM verification summary
+        verified = [r for r in self.results if r.llm_verified]
+        tp = sum(1 for r in verified if r.llm_verdict == "TRUE_POSITIVE")
+        fp = sum(1 for r in verified if r.llm_verdict == "FALSE_POSITIVE")
+        mr = sum(1 for r in verified if r.llm_verdict == "NEEDS_MANUAL_REVIEW")
+
+        if verified:
+            console.print(
+                f"  [green]AI Brain complete: "
+                f"{tp} confirmed, {fp} false positives eliminated, "
+                f"{mr} needs manual review[/green]"
+            )
+
+    def _promote_potential_fallback(self) -> list[FindingResult]:
+        """Fallback: promote all POTENTIAL_FINDINGs to FINDINGs when LLM is disabled."""
+        for f in self.results:
+            if f.verdict == FindingVerdict.POTENTIAL_FINDING:
+                f.verdict = FindingVerdict.FINDING
+        return self.results
+
     def _generate_reports(self) -> TestReport:
         """Generate the final report."""
+        # Compute LLM verification stats
+        llm_tp = sum(1 for r in self.results if r.llm_verdict == "TRUE_POSITIVE")
+        llm_fp = sum(1 for r in self.results if r.llm_verdict == "FALSE_POSITIVE")
+        llm_mr = sum(1 for r in self.results if r.llm_verdict == "NEEDS_MANUAL_REVIEW")
+
         # Build executive summary
         summary = ExecutiveSummary(
             total_tests=len(self.results),
             total_endpoints=len(self.endpoints),
             findings_count=sum(1 for r in self.results if r.verdict == FindingVerdict.FINDING),
             not_findings_count=sum(1 for r in self.results if r.verdict == FindingVerdict.NOT_FINDING),
+            potential_findings_count=sum(1 for r in self.results if r.verdict == FindingVerdict.POTENTIAL_FINDING),
             na_count=sum(1 for r in self.results if r.verdict == FindingVerdict.NA),
             errors_count=sum(1 for r in self.results if r.verdict == FindingVerdict.ERROR),
             critical_count=sum(1 for r in self.results if r.verdict == FindingVerdict.FINDING and r.severity == Severity.CRITICAL),
             high_count=sum(1 for r in self.results if r.verdict == FindingVerdict.FINDING and r.severity == Severity.HIGH),
             medium_count=sum(1 for r in self.results if r.verdict == FindingVerdict.FINDING and r.severity == Severity.MEDIUM),
             low_count=sum(1 for r in self.results if r.verdict == FindingVerdict.FINDING and r.severity == Severity.LOW),
+            llm_true_positives=llm_tp,
+            llm_false_positives=llm_fp,
+            llm_manual_review=llm_mr,
             portals_tested=list({ep.portal_name for ep in self.endpoints}),
         )
 
@@ -497,6 +581,7 @@ class Orchestrator:
         table.add_row("Total Tests", str(summary.total_tests))
         table.add_row("Endpoints Tested", str(summary.total_endpoints))
         table.add_row("Findings", f"[red]{summary.findings_count}[/red]")
+        table.add_row("Potential Findings", f"[yellow]{summary.potential_findings_count}[/yellow]")
         table.add_row("Not Findings", f"[green]{summary.not_findings_count}[/green]")
         table.add_row("N/A", str(summary.na_count))
         table.add_row("Errors", f"[yellow]{summary.errors_count}[/yellow]")
@@ -505,6 +590,13 @@ class Orchestrator:
         table.add_row("High Findings", f"[red]{summary.high_count}[/red]")
         table.add_row("Medium Findings", f"[yellow]{summary.medium_count}[/yellow]")
         table.add_row("Low Findings", f"[green]{summary.low_count}[/green]")
+
+        # LLM verification stats
+        if summary.llm_true_positives or summary.llm_false_positives or summary.llm_manual_review:
+            table.add_row("─" * 20, "─" * 10)
+            table.add_row("LLM Confirmed (TP)", f"[green]{summary.llm_true_positives}[/green]")
+            table.add_row("LLM Eliminated (FP)", f"[cyan]{summary.llm_false_positives}[/cyan]")
+            table.add_row("LLM Manual Review", f"[yellow]{summary.llm_manual_review}[/yellow]")
 
         console.print()
         console.print(table)

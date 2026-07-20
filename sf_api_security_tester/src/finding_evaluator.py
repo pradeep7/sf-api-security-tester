@@ -1,4 +1,9 @@
-"""Evaluates evidence against test case criteria to determine findings."""
+"""Evaluates evidence against test case criteria to determine findings.
+
+V2.2: The local evaluator outputs POTENTIAL_FINDING (instead of FINDING)
+when it detects anomalies.  This creates the queue for the LLM layer to
+review and confirm/reject before findings are finalised.
+"""
 
 from __future__ import annotations
 
@@ -248,13 +253,15 @@ class FindingEvaluator:
 
         # ------------------------------------------------------------------
         # Determine verdict
+        # V2.2: Output POTENTIAL_FINDING instead of FINDING.
+        # The LLM layer will confirm/reject these before they become final.
         # ------------------------------------------------------------------
         description = criteria.get("description", "")
 
         if total_checks == 0:
             # No specific criteria defined, use status code heuristic
             if status_code >= 200 and status_code < 300:
-                verdict = FindingVerdict.FINDING
+                verdict = FindingVerdict.POTENTIAL_FINDING
                 confidence = ConfidenceLevel.MEDIUM
                 reasoning_parts.append(
                     "No specific criteria defined; positive response indicates potential finding"
@@ -276,8 +283,8 @@ class FindingEvaluator:
             finding_ratio = finding_indicators / total_checks if total_checks > 0 else 0
 
             if finding_ratio >= 0.5:
-                # More indicators point to finding
-                verdict = FindingVerdict.FINDING
+                # More indicators point to finding — flag as POTENTIAL for LLM review
+                verdict = FindingVerdict.POTENTIAL_FINDING
                 if finding_ratio >= 0.8:
                     confidence = ConfidenceLevel.HIGH
                 elif finding_ratio >= 0.6:

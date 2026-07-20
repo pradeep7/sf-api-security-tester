@@ -192,3 +192,20 @@ waf_evasion:
   max_retries: 5                     # max retries on WAF block
   rate_limit_cooldown: 30.0          # cooldown after sustained blocks
   rotate_user_agent: true            # rotate User-Agent on WAF detection
+
+# ---------------------------------------------------------------------------
+# LLM Verification (Hybrid AI Architecture — V2.2)
+# ---------------------------------------------------------------------------
+# The local evaluator outputs POTENTIAL_FINDING for anomalies.
+# The LLM reviews ONLY those to confirm/reject.  API keys are read from
+# environment variables — never hardcoded in this file.
+llm_config:
+  enabled: false                      # Set true to enable AI verification
+  provider: "openai"                  # openai | anthropic
+  model: "gpt-4o-mini"               # Fast/cheap model for triage
+  api_key_env_var: "LLM_API_KEY"     # Read API key from this env var
+  max_tokens_per_request: 1000       # Max tokens per verification call
+  timeout_seconds: 30                 # HTTP timeout for LLM calls
+  temperature: 0.1                    # Low temp for deterministic analysis
+  max_body_chars: 2000               # Max response body chars sent to LLM
+  max_request_chars: 1000            # Max request body chars sent to LLM
