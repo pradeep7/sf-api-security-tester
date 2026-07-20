@@ -136,6 +136,9 @@ class MutatedRequest(BaseModel):
     content_type: Optional[str] = None
     cookies: dict[str, str] = Field(default_factory=dict)
     mutation_description: str = ""
+    # Injection point metadata (V3.2: for telemetry headers)
+    injection_field: str = ""       # e.g., "q", "IsDeleted", "recordId"
+    injection_location: str = ""    # query | json_body | form_body | url_path | header | cookie | multipart
 
 
 class HttpRequest(BaseModel):

@@ -310,6 +310,15 @@ class RequestExecutor:
         payload_hash = hashlib.md5(payload_str.encode("utf-8")).hexdigest()
         headers["X-SecTest-Payload-Hash"] = payload_hash
 
+        # --- V3.2: Injection point metadata ---
+        # Target field (truncated to 64 chars to prevent header bloat)
+        target_field = mutated_request.injection_field or "N/A"
+        headers["X-SecTest-Target-Field"] = target_field[:64]
+
+        # Injection location (query, json_body, form_body, url_path, header, cookie, multipart)
+        inject_location = mutated_request.injection_location or "request_metadata"
+        headers["X-SecTest-Inject-Location"] = inject_location
+
         return headers
 
     def _dry_run_execute(

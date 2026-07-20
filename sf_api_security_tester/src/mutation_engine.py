@@ -136,8 +136,31 @@ class MutationEngine:
         headers: dict[str, str] | None = None,
         body: str | None = None,
         content_type: str | None = None,
+        injection_field: str = "",
+        injection_location: str = "",
     ) -> MutatedRequest:
-        """Build a MutatedRequest from an endpoint and mutation details."""
+        """Build a MutatedRequest from an endpoint and mutation details.
+
+        V3.2: Attaches injection_point metadata for telemetry headers.
+        """
+        # --- V3.2: Infer injection location if not explicitly provided ---
+        if not injection_location:
+            injection_location = self._infer_injection_location(
+                mutation, url or endpoint.url, body or endpoint.request_body,
+                headers or endpoint.headers,
+            )
+
+        # --- V3.2: Infer injection field if not explicitly provided ---
+        if not injection_field and mutation.target_field:
+            injection_field = mutation.target_field
+        elif not injection_field:
+            injection_field = self._infer_injection_field(
+                mutation, url or endpoint.url, injection_location,
+            )
+
+        # Truncate field name to 64 chars to prevent header bloat
+        injection_field = injection_field[:64]
+
         return MutatedRequest(
             endpoint_id=endpoint.id,
             test_case_id=test_case_id,
@@ -149,7 +172,74 @@ class MutationEngine:
             content_type=content_type or endpoint.request_content_type,
             cookies=copy.deepcopy(endpoint.cookies),
             mutation_description=mutation.description,
+            injection_field=injection_field,
+            injection_location=injection_location,
         )
+
+    @staticmethod
+    def _infer_injection_location(
+        mutation: Mutation, url: str, body: str | None, headers: dict[str, str]
+    ) -> str:
+        """Infer injection location from mutation context."""
+        desc = mutation.description.lower()
+
+        # URL path injection
+        if "url_path" in desc or "path" in desc or "record_id" in desc:
+            return "url_path"
+
+        # Query parameter injection
+        if "query" in desc or "param" in desc or "url_param" in desc:
+            return "query"
+
+        # JSON body injection
+        if "body" in desc or "json" in desc or "mass" in desc:
+            return "json_body"
+
+        # Header injection
+        if "header" in desc or "cors" in desc:
+            return "header"
+
+        # Cookie injection
+        if "cookie" in desc or "session" in desc:
+            return "cookie"
+
+        # Default: infer from URL structure
+        if "?" in (endpoint_url := ""):
+            return "query"
+        if body:
+            try:
+                json.loads(body)
+                return "json_body"
+            except (json.JSONDecodeError, TypeError):
+                return "form_body"
+
+        return "request_metadata"
+
+    @staticmethod
+    def _infer_injection_field(
+        mutation: Mutation, url: str, location: str
+    ) -> str:
+        """Infer injection field from mutation context."""
+        desc = mutation.description.lower()
+
+        # Try to extract field name from mutation target_field
+        if mutation.target_field:
+            return mutation.target_field
+
+        # Try to extract from description
+        # Common patterns: "in field 'xyz'", "parameter 'xyz'", "header 'xyz'"
+        match = re.search(r"(?:field|param|header|parameter)\s*['\"](\w+)['\"]", desc)
+        if match:
+            return match.group(1)
+
+        # For query injection, try to extract from URL
+        if location == "query" and "?" in url:
+            from urllib.parse import parse_qs, urlparse
+            params = parse_qs(urlparse(url).query)
+            if params:
+                return list(params.keys())[0]
+
+        return "N/A"
 
     # -------------------------------------------------------------------------
     # BOLA / IDOR Mutations
