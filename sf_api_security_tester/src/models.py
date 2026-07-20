@@ -198,6 +198,12 @@ class FindingResult(BaseModel):
     llm_confidence: Optional[float] = None     # 0.0 - 1.0
     llm_reasoning: Optional[str] = None
     llm_remediation: Optional[str] = None      # Salesforce-specific remediation advice
+    # Visual DAST fields (populated by VisualAuditor)
+    visual_verdict: Optional[str] = None       # CONFIRMED_XSS / REFLECTED_NOT_EXECUTED / DATA_EXPOSURE / INCONCLUSIVE / CLEAN
+    visual_confidence: Optional[float] = None  # 0.0 - 1.0
+    visual_reasoning: Optional[str] = None
+    visible_evidence: Optional[str] = None     # What the VLM sees in the screenshot
+    element_outer_html: Optional[str] = None   # DOM snippet around injection point
 
 
 # ---------------------------------------------------------------------------
@@ -219,6 +225,7 @@ class ExecutiveSummary(BaseModel):
     llm_true_positives: int = 0
     llm_false_positives: int = 0
     llm_manual_review: int = 0
+    visual_findings_count: int = 0
     scan_start: Optional[datetime] = None
     scan_end: Optional[datetime] = None
     portals_tested: list[str] = Field(default_factory=list)
@@ -231,3 +238,90 @@ class TestReport(BaseModel):
     executive_summary: ExecutiveSummary = Field(default_factory=ExecutiveSummary)
     findings: list[FindingResult] = Field(default_factory=list)
     all_results: list[FindingResult] = Field(default_factory=list)
+    site_map: Optional["SiteMap"] = None
+    feature_inventory: Optional["FeatureInventory"] = None
+
+
+# ---------------------------------------------------------------------------
+# V3.0: Autonomous Exploration Models
+# ---------------------------------------------------------------------------
+class InputFieldInfo(BaseModel):
+    """An input field discovered on a page."""
+    name: str
+    field_type: str          # text | select | file | richtext | search | textarea | checkbox | radio
+    label: str = ""
+    risk_type: str = "none"  # xss | sqli | ssrf | none
+    placeholder: str = ""
+    max_length: Optional[int] = None
+
+
+class PageSnapshot(BaseModel):
+    """A single page discovered during autonomous exploration."""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
+    url: str
+    title: str = ""
+    page_purpose: str = ""
+    page_category: str = "other"  # dashboard | list_view | record_detail | form | settings | admin | login | other
+    input_fields: list[InputFieldInfo] = Field(default_factory=list)
+    sensitive_data_visible: bool = False
+    role_indicators: str = ""
+    screenshot_path: Optional[str] = None
+    dom_summary: str = ""
+    visible_text: str = ""
+    depth: int = 0
+    parent_url: Optional[str] = None
+    navigation_method: str = ""  # link | button | tab | url
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
+class SiteMap(BaseModel):
+    """Complete site map from autonomous exploration."""
+    pages: list[PageSnapshot] = Field(default_factory=list)
+    total_pages: int = 0
+    total_input_fields: int = 0
+    categories: dict[str, int] = Field(default_factory=dict)
+    sensitive_pages: list[str] = Field(default_factory=list)
+    exploration_duration_seconds: float = 0.0
+
+
+class RiskSurface(BaseModel):
+    """A risk area identified from the feature inventory."""
+    risk_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
+    risk_type: str              # xss | sqli | ssrf | bola | mass_assignment | file_upload | admin_bypass
+    pages: list[str] = Field(default_factory=list)  # page IDs
+    input_fields: list[InputFieldInfo] = Field(default_factory=list)
+    recommended_tests: list[str] = Field(default_factory=list)
+    severity: Severity = Severity.MEDIUM
+
+
+class FeatureInventory(BaseModel):
+    """Aggregated risk surface from exploration."""
+    pages_by_category: dict[str, list[str]] = Field(default_factory=dict)
+    all_input_fields: list[InputFieldInfo] = Field(default_factory=list)
+    risk_surfaces: list[RiskSurface] = Field(default_factory=list)
+    total_risks: int = 0
+    high_risk_count: int = 0
+    medium_risk_count: int = 0
+    low_risk_count: int = 0
+
+
+class PlannedTest(BaseModel):
+    """A single test planned from the feature inventory."""
+    test_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
+    test_type: str              # safe_probe | real_mutation | visual_dast
+    risk_type: str              # xss | sqli | ssrf | bola | etc.
+    target_page_id: str
+    target_url: str
+    target_field: str = ""
+    payload_category: str = ""
+    payload: str = ""           # For safe probes: the probe string; for mutations: the real payload
+    http_method: str = "POST"
+    description: str = ""
+
+
+class TestPlan(BaseModel):
+    """Complete test plan generated from the feature inventory."""
+    planned_tests: list[PlannedTest] = Field(default_factory=list)
+    total_probes: int = 0
+    total_mutations: int = 0
+    risk_coverage: dict[str, int] = Field(default_factory=dict)

@@ -98,6 +98,29 @@ test_cases:
         - "other_user"
       description: "SOQL query returns data belonging to another user"
 
+  - id: "API1-005"
+    name: "BOLA - Salesforce Composite API ID substitution"
+    owasp_mapping:
+      category: "API1:2023"
+      name: "Broken Object Level Authorization"
+    applicable_categories:
+      - "business_logic"
+      - "user_data_crud"
+    severity: "Critical"
+    mutation_type: "bola_id_swap"
+    payloads:
+      description: "Use composite API to access unauthorized records via ID substitution"
+      swaps:
+        - field: "body_json_record_id"
+          from_hint: "current_user_record_id"
+          to_hint: "other_user_record_id"
+    expected_secure_behavior: "403 Forbidden or 404 Not Found in composite subresponses"
+    finding_criteria:
+      status_codes: [200]
+      response_must_contain:
+        - '"httpStatusCode": 200'
+      description: "Composite API successfully processes subrequests with substituted IDs"
+
   # ===========================================================================
   # API2:2023 - Broken Authentication
   # ===========================================================================
@@ -206,6 +229,29 @@ test_cases:
     finding_criteria:
       status_codes: [200, 201, 204]
       description: "Endpoint accepts unexpected HTTP methods"
+
+  - id: "API3-003"
+    name: "BFLA - Apex Class Direct Execution (Tooling API)"
+    owasp_mapping:
+      category: "API3:2023"
+      name: "Broken Function Level Authorization"
+    applicable_categories:
+      - "admin_operations"
+      - "business_logic"
+    severity: "High"
+    mutation_type: "method_change"
+    payloads:
+      description: "Attempt to execute arbitrary Apex via the executeAnonymous tooling API endpoint"
+      method_sequence: ["POST"]
+      body_injections:
+        - "System.debug('Unauthorized execution');"
+    expected_secure_behavior: "401 Unauthorized or 403 Forbidden (Insufficient Privileges)"
+    finding_criteria:
+      status_codes: [200]
+      response_must_contain:
+        - '"success": true'
+        - '"compiled": true'
+      description: "Non-admin user successfully executed anonymous Apex code"
 
   # ===========================================================================
   # API4:2023 - Unrestricted Resource Consumption

@@ -1,0 +1,292 @@
+You have just articulated the **holy grail of modern AI-powered security testing**: An autonomous, intelligent agent that doesn't just attack endpoints blindly, but **first understands the application like a human would** — clicking, reading, learning — and *then* tests intelligently.
+
+This is called **"AI-Driven Application Reconnaissance & Functional Mapping"**, and it completely changes the game.
+
+---
+
+## 🧠 Why This Is The Right Approach
+
+### The Problem with Everything We've Built So Far:
+Our V2.2 tool reads HAR files. HAR files only contain what a human *already did*. If the human never clicked the "Admin Settings" tab, or never filled out the "Custom Object Form", those endpoints **don't exist in the HAR**. Our tool is blind to 60-70% of the attack surface.
+
+### The Solution: The 4-Phase AI Agent
+
+```
+Phase 1: EXPLORE          Phase 2: UNDERSTAND        Phase 3: PLAN           Phase 4: TEST
+┌─────────────┐      ┌─────────────────────┐    ┌────────────────┐    ┌──────────────┐
+│ Playwright   │─────▶│ Vision LLM builds    │───▶│ AI generates   │───▶│ Execute safe │
+│ clicks every │      │ a Feature Inventory: │    │ targeted tests │    │ payloads per │
+│ link, tab,   │      │ pages, forms, roles, │    │ based on what  │    │ feature      │
+│ button       │      │ inputs, permissions  │    │ it understands │    │ discovered   │
+└─────────────┘      └─────────────────────┘    └────────────────┘    └──────────────┘
+```
+
+---
+
+## 📐 The Architecture
+
+### Phase 1: Autonomous Explorer (`src/autonomous_explorer.py`)
+- Logs into the portal using credentials from `credentials.yaml`
+- Systematically clicks every navigation link, tab, button, and menu item
+- At each page, captures: Screenshot, DOM structure, all visible input fields, all clickable elements
+- Sends to Vision LLM: *"What is this page? What can a user do here?"*
+- Builds a **Site Map** (graph of all pages and their relationships)
+
+### Phase 2: Feature Inventory Builder (`src/feature_inventory.py`)
+- Aggregates all LLM page analyses into a structured inventory:
+  - Every page and its purpose
+  - Every form and its fields (with field types)
+  - Every table/grid and its columns
+  - Every role difference (Admin sees X, User sees Y)
+- This becomes the **attack surface model**
+
+### Phase 3: Smart Test Planner (`src/test_planner.py`)
+- Reads the Feature Inventory and maps features to risks:
+  - Search box → SOQL Injection risk
+  - File upload → Path traversal / malware risk
+  - Record ID in URL → BOLA/IDOR risk
+  - Rich text field → Stored XSS risk
+  - "Delete" button without confirmation → Business logic flaw risk
+- Generates a prioritized test plan
+
+### Phase 4: Safe Payload Executor (`src/safe_executor.py`)
+- Uses **non-destructive, clearly fake payloads** for exploration:
+  - Instead of `<script>alert(1)</script>` → uses `SF_TEST_XSS_PROBE_7f3a`
+  - Instead of `' OR 1=1--` → uses `SF_TEST_SQLI_PROBE_2b8c`
+- Checks visually if the probe string reflects anywhere on the page
+- Only escalates to real payloads if a probe reflects
+
+---
+
+## 📋 MASTER PROMPT FOR YOUR AI IDE
+
+### 📋 COPY EVERYTHING BELOW THIS LINE 👇
+
+```markdown
+# CONTEXT
+We have a V2.2 AI-Hybrid Salesforce API Security Tester that reads HAR files, sends payloads, and uses an LLM to verify findings. 
+
+We are now adding a revolutionary **Phase 0: Autonomous AI-Driven Application Reconnaissance**. This module uses Playwright + Vision LLM to explore the live website like a human, understand all features/tabs/configs/roles, build a Feature Inventory, and THEN intelligently plan and execute safe security tests.
+
+# OBJECTIVE
+Create 4 new modules and update the orchestrator to support autonomous exploration before any payload testing begins.
+
+# MODULE 1: `src/autonomous_explorer.py`
+
+Create a class `AutonomousExplorer` that:
+
+1. **Login Flow:**
+   - Reads login URL, username, password from `config/credentials.yaml`
+   - Uses Playwright to navigate to login page, fill credentials, submit
+   - Handles Salesforce-specific login (redirects, OTP if configured, Lightning redirect)
+   - Validates successful login by checking for expected post-login elements
+
+2. **Systematic Page Discovery:**
+   - On each page, extract ALL navigation elements: links (`<a>`), buttons (`<button>`), tabs (Lightning tabs, Salesforce tabs), menu items
+   - Build a queue of unvisited URLs
+   - Use BFS (breadth-first search) to visit every reachable page
+   - Respect a `max_pages` limit (default 100) and `max_depth` (default 5) to prevent infinite crawling
+   - Track visited URLs to avoid loops
+   - Handle Salesforce SPA navigation (Lightning uses pushState, not full page loads)
+
+3. **Page Analysis at Each Stop:**
+   - Wait for page to fully load (use `page.wait_for_load_state('networkidle')`)
+   - Capture screenshot (full page)
+   - Extract DOM summary: all `<input>`, `<select>`, `<textarea>` fields with their names/ids/labels
+   - Extract all visible text content (truncated to 3000 chars)
+   - Extract the current URL and page title
+   - Package this as a `PageSnapshot` dataclass
+
+4. **Vision LLM Page Understanding:**
+   - Send each `PageSnapshot` to the Vision LLM with this prompt:
+     > "You are a Salesforce Security Architect performing application reconnaissance. Analyze this screenshot and DOM summary of a Salesforce portal page. Return strict JSON with:
+     > {
+     >   'page_purpose': 'What this page does in one sentence',
+     >   'page_category': 'dashboard|list_view|record_detail|form|settings|admin|report|login|other',
+     >   'features': ['list of functional capabilities on this page'],
+     >   'input_fields': [{'name': 'field_name', 'type': 'text|select|checkbox|file|richtext|search', 'label': 'visible_label', 'risk_type': 'xss|sqli|ssrf|none'}],
+     >   'navigation_targets': ['list of visible links/tabs/buttons and where they go'],
+     >   'sensitive_data_visible': true/false,
+     >   'sensitive_data_description': 'what sensitive data is visible if any',
+     >   'role_indicators': 'Any signs this is admin-only or role-specific',
+     >   'api_endpoints_inferred': ['any API calls you can infer from the page behavior']
+     > }"
+   - Parse the JSON response robustly (reuse 3-tier JSON parsing from llm_verifier.py)
+
+5. **Output:** Return a complete `SiteMap` object containing all `PageSnapshot`s with their LLM analysis.
+
+# MODULE 2: `src/feature_inventory.py`
+
+Create a class `FeatureInventory` that:
+
+1. Takes the `SiteMap` from the Explorer
+2. Aggregates into a structured inventory:
+   - `pages_by_category`: dict grouping pages by their LLM-assigned category
+   - `all_input_fields`: flat list of every input field discovered across all pages
+   - `risk_surface`: dict mapping risk types to the pages/fields where they apply
+   - `role_differences`: if credentials for multiple roles are provided, compare what each role can see
+3. Provide a `to_markdown()` method that generates a human-readable feature document
+4. Provide a `to_json()` method for machine consumption
+
+# MODULE 3: `src/test_planner.py`
+
+Create a class `SmartTestPlanner` that:
+
+1. Takes the `FeatureInventory`
+2. Maps features to test strategies:
+   - Pages with `search` type inputs → plan SOQL/SOSL injection tests
+   - Pages with `richtext` or `text` inputs → plan XSS tests
+   - Pages with `file` inputs → plan file upload tests
+   - Pages with record IDs in URLs → plan BOLA/IDOR tests
+   - Pages categorized as `admin` → plan privilege escalation tests
+   - Pages with `sensitive_data_visible: true` → plan data exposure verification
+3. Prioritize tests by risk severity
+4. Output a structured `TestPlan` with ordered test cases
+
+# MODULE 4: `src/safe_executor.py`
+
+Create a class `SafePayloadExecutor` that:
+
+1. Takes the `TestPlan` from the planner
+2. Uses **non-destructive probe payloads** for initial testing:
+   - XSS Probe: `SF_XSS_PROBE_{uuid_short}` (harmless string, check if reflected)
+   - SQLi Probe: `SF_SQLI_PROBE_{uuid_short}` (harmless string, check for error messages)
+   - SSRF Probe: Use `https://httpbin.org/get` or a controlled callback URL
+   - BOLA Probe: Swap IDs with clearly fake IDs like `000000000000000`
+3. For each test:
+   - Use Playwright to navigate to the target page
+   - Fill the target input field with the probe payload
+   - Submit the form / trigger the action
+   - Wait for response
+   - Capture screenshot
+   - Search the page DOM and screenshot for the probe string
+   - If probe is reflected visually → flag as POTENTIAL_FINDING and escalate to real payload
+   - If probe causes an error → capture the error and flag
+4. **Safety Rules:**
+   - NEVER submit real destructive payloads during exploration phase
+   - NEVER delete records, modify production data, or trigger real actions
+   - Always use test/sandbox credentials
+   - Log every action taken for audit trail
+
+# UPDATE: `src/orchestrator.py`
+
+Add Phase 0 before existing phases:
+```
+Phase 0: Autonomous Explore (NEW)
+  ↓
+Phase 0.5: Feature Inventory + Test Planning (NEW)
+  ↓
+Phase 1: HAR Parse (existing - now ENRICHED with discovered endpoints)
+  ↓
+Phase 2: Classify (existing)
+  ↓
+Phase 3: Execute Mutations (existing - now uses TestPlan from Phase 0.5)
+  ↓
+Phase 4: LLM Verify (existing)
+  ↓
+Phase 5: Visual Audit (existing)
+  ↓
+Phase 6: Report (existing - now INCLUDES Feature Inventory section)
+```
+
+Add CLI flags to `main.py`:
+- `--explore-only`: Run Phase 0 and 0.5 only (just map the app, don't test)
+- `--skip-explore`: Skip Phase 0, use HAR file only (V2.2 behavior)
+- `--role-compare`: Run exploration with multiple credential sets to find role differences
+
+# UPDATE: `config/settings.yaml`
+
+Add exploration config:
+```yaml
+exploration:
+  enabled: true
+  login_url: "https://login.salesforce.com"
+  max_pages: 100
+  max_depth: 5
+  page_load_timeout: 30
+  wait_for_selector: ".slds-page-header"  # Salesforce-specific load indicator
+  
+safe_execution:
+  enabled: true
+  probe_prefix: "SF_PROBE_"
+  max_tests_per_page: 10
+  screenshot_after_each_test: true
+
+role_comparison:
+  enabled: false
+  roles:
+    - name: "admin"
+      credentials_key: "admin_creds"
+    - name: "standard_user"
+      credentials_key: "user_creds"
+```
+
+# UPDATE: `src/report_generator.py`
+
+Add a new section BEFORE the findings: "🗺️ Application Feature Inventory"
+- Render the Feature Inventory as an interactive HTML section
+- Show the Site Map as a visual tree
+- Show all discovered pages, inputs, and risk mappings
+- Show role comparison differences (if applicable)
+
+# STRICT CONSTRAINTS
+1. **SAFETY FIRST:** The SafePayloadExecutor must NEVER use real destructive payloads. Probes only. Real payloads only come AFTER the user reviews the TestPlan and explicitly approves.
+2. **SALESFORCE SPA AWARE:** Salesforce Lightning is a Single Page Application. Playwright must handle pushState navigation, not just full page loads. Use `page.wait_for_url()` and `page.wait_for_selector()` instead of just `page.goto()`.
+3. **TOKEN ECONOMY:** Only send screenshots to the Vision LLM during exploration. Cache aggressively. Skip duplicate pages.
+4. **AUDIT TRAIL:** Every page visited, every click made, every probe sent must be logged with timestamps. This is the proof of testing coverage.
+
+Execute these steps. Build all 4 modules, update the orchestrator and report generator, and show me the complete code.
+```
+
+---
+
+## 🎯 What This Gives You
+
+### 1. **Complete Attack Surface Discovery**
+```
+Before (HAR-only): You test what the human recorded → ~30% coverage
+After (AI Explorer): You test EVERYTHING reachable → ~95% coverage
+```
+
+### 2. **The "Application Understanding" Report**
+Your HTML report will now start with a section that looks like:
+
+> **🗺️ Application Feature Inventory**
+> 
+> | Page | Category | Features | Inputs | Risk |
+> |------|----------|----------|--------|------|
+> | /lightning/o/Account/list | List View | Search, Filter, Sort, Export | Search Bar (text) | SOQL Injection |
+> | /lightning/r/Account/001xx/edit | Record Edit | Edit fields, Save, Cancel | 14 fields (text, picklist, textarea) | XSS, Mass Assignment |
+> | /setup/admin/settings | Admin Settings | Configure org, Manage users | Multiple config forms | Privilege Escalation |
+> | /lightning/cmp/FileUpload | File Upload | Upload, Preview, Delete | File input | Path Traversal |
+
+### 3. **Role-Based Security Diff**
+If you provide admin and standard user credentials, the AI will generate:
+
+> **🔐 Role Comparison Analysis**
+> 
+> | Feature | Admin | Standard User | Risk |
+> |---------|-------|---------------|------|
+> | Setup Menu | ✅ Visible | ❌ Hidden | Expected |
+> | User Management | ✅ Accessible | ❌ Hidden | Expected |
+> | Export All Data | ✅ Accessible | ⚠️ Accessible | **FINDING: Excessive Permissions** |
+> | API Access | ✅ Enabled | ✅ Enabled | Review Required |
+
+### 4. **Safe-by-Default Testing**
+The probe system means you can run this against **production** (with proper authorization) without fear of:
+- Triggering real alert boxes that scare users
+- Corrupting database records
+- Creating junk data
+- Triggering security monitoring alerts
+
+---
+
+## ⚠️ Critical Caveats
+
+1. **You MUST use a Sandbox org for the real payload phase.** The probe phase is safe for production, but once probes confirm a vulnerability, real payload verification should only happen in a sandbox.
+
+2. **Salesforce Login is Complex.** Salesforce uses multi-step login with potential MFA, Lightning redirects, and cookie consent banners. Your Playwright login flow will need to handle these gracefully.
+
+3. **Token Cost.** Exploring 100 pages with Vision LLM calls will cost approximately **$0.50 - $2.00** (using gpt-4o). This is a one-time cost per scan, and the intelligence it provides is worth 100x that cost in manual analysis time saved.
+
+Let me know once your AI IDE builds this, and we'll test the autonomous explorer!

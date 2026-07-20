@@ -14,9 +14,11 @@ from loguru import logger
 from .models import (
     ExecutiveSummary,
     Evidence,
+    FeatureInventory,
     FindingResult,
     FindingVerdict,
     Severity,
+    SiteMap,
     TestReport,
 )
 
@@ -370,6 +372,163 @@ footer {
     border-top: 1px solid var(--border);
 }
 
+/* --- Feature Inventory (V3.0) --- */
+.inventory-section { margin-bottom: 30px; }
+
+.inventory-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.inventory-stat {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    text-align: center;
+}
+
+.inventory-stat .num {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--accent-blue);
+    display: block;
+}
+
+.inventory-stat .lbl {
+    color: var(--text-secondary);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.inventory-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+}
+
+.inventory-table th,
+.inventory-table td {
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    font-size: 12px;
+    text-align: left;
+}
+
+.inventory-table th {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-size: 10px;
+}
+
+.inventory-table tr:hover td { background: rgba(88,166,255,0.04); }
+
+.inv-cat-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.inv-cat-dashboard { background: rgba(88,166,255,0.15); color: var(--accent-blue); }
+.inv-cat-list_view { background: rgba(63,185,80,0.15); color: var(--accent-green); }
+.inv-cat-record_detail { background: rgba(188,140,255,0.15); color: var(--accent-purple); }
+.inv-cat-form { background: rgba(240,136,62,0.15); color: var(--accent-orange); }
+.inv-cat-settings { background: rgba(210,153,34,0.15); color: var(--accent-yellow); }
+.inv-cat-admin { background: rgba(248,81,73,0.15); color: var(--accent-red); }
+.inv-cat-login { background: var(--bg-tertiary); color: var(--text-secondary); }
+.inv-cat-other { background: var(--bg-tertiary); color: var(--text-muted); }
+
+.risk-tag {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 9px;
+    font-weight: 600;
+    margin: 1px;
+    text-transform: uppercase;
+}
+
+.risk-xss { background: rgba(248,81,73,0.2); color: var(--accent-red); }
+.risk-sqli { background: rgba(248,81,73,0.3); color: var(--accent-red); }
+.risk-ssrf { background: rgba(240,136,62,0.2); color: var(--accent-orange); }
+.risk-none { background: var(--bg-tertiary); color: var(--text-muted); }
+
+.sensitive-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 9px;
+    font-weight: 600;
+    background: rgba(248,81,73,0.15);
+    color: var(--accent-red);
+}
+
+/* --- Visual Evidence (V3.0) --- */
+.visual-evidence {
+    display: flex;
+    gap: 16px;
+    margin-top: 12px;
+    padding: 12px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+.visual-evidence-img {
+    flex-shrink: 0;
+    max-width: 320px;
+}
+
+.visual-evidence-img img {
+    max-width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.visual-evidence-img img:hover { border-color: var(--accent-blue); }
+
+.visual-evidence-text { flex: 1; min-width: 0; }
+
+.visual-verdict-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.vv-confirmed { background: rgba(248,81,73,0.2); color: var(--accent-red); border: 1px solid var(--accent-red); }
+.vv-reflected { background: rgba(210,153,34,0.2); color: var(--accent-yellow); border: 1px solid var(--accent-yellow); }
+.vv-data_exposure { background: rgba(240,136,62,0.2); color: var(--accent-orange); border: 1px solid var(--accent-orange); }
+.vv-inconclusive { background: var(--bg-secondary); color: var(--text-secondary); border: 1px solid var(--border); }
+.vv-clean { background: rgba(63,185,80,0.15); color: var(--accent-green); border: 1px solid var(--accent-green); }
+
+.visual-evidence-label {
+    font-size: 11px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 8px;
+    margin-bottom: 4px;
+}
+
+.visual-evidence-content {
+    font-size: 12px;
+    color: var(--text-primary);
+    line-height: 1.5;
+}
+
 @media (max-width: 768px) {
     .summary-grid { grid-template-columns: repeat(2, 1fr); }
     .finding-header { flex-wrap: wrap; }
@@ -583,6 +742,86 @@ footer {
     </div>
 </div>
 
+<!-- Application Feature Inventory (V3.0) -->
+{% if site_map and site_map.pages %}
+<h2 class="section-title">Application Feature Inventory</h2>
+<div class="inventory-section">
+    <div class="inventory-grid">
+        <div class="inventory-stat">
+            <span class="num">{{ site_map.total_pages }}</span>
+            <span class="lbl">Pages Discovered</span>
+        </div>
+        <div class="inventory-stat">
+            <span class="num">{{ site_map.total_input_fields }}</span>
+            <span class="lbl">Input Fields</span>
+        </div>
+        <div class="inventory-stat">
+            <span class="num">{{ site_map.sensitive_pages | length }}</span>
+            <span class="lbl">Sensitive Pages</span>
+        </div>
+        <div class="inventory-stat">
+            <span class="num">{{ feature_inventory.total_risks if feature_inventory else 0 }}</span>
+            <span class="lbl">Risk Surfaces</span>
+        </div>
+    </div>
+
+    {% if feature_inventory and feature_inventory.risk_surfaces %}
+    <h3 style="font-size:14px;color:var(--text-secondary);margin-bottom:8px;">Risk Surfaces</h3>
+    <table class="inventory-table">
+        <thead>
+            <tr>
+                <th>Risk Type</th>
+                <th>Severity</th>
+                <th>Affected Pages</th>
+                <th>Input Fields</th>
+                <th>Recommended Tests</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for risk in feature_inventory.risk_surfaces %}
+            <tr>
+                <td><span class="risk-tag risk-{{ risk.risk_type }}">{{ risk.risk_type | upper }}</span></td>
+                <td><span class="severity-badge severity-{{ risk.severity.value|lower }}">{{ risk.severity.value }}</span></td>
+                <td>{{ risk.pages | length }} page(s)</td>
+                <td>{{ risk.input_fields | length }} field(s)</td>
+                <td>{% for t in risk.recommended_tests %}<span class="owasp-tag" style="margin:1px;">{{ t }}</span>{% endfor %}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+
+    {% if site_map.pages %}
+    <h3 style="font-size:14px;color:var(--text-secondary);margin:16px 0 8px;">Discovered Pages</h3>
+    <table class="inventory-table">
+        <thead>
+            <tr>
+                <th>URL</th>
+                <th>Category</th>
+                <th>Purpose</th>
+                <th>Inputs</th>
+                <th>Sensitive</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for page in site_map.pages[:50] %}
+            <tr>
+                <td class="endpoint-url" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ page.url[:80] }}</td>
+                <td><span class="inv-cat-badge inv-cat-{{ page.page_category }}">{{ page.page_category }}</span></td>
+                <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ page.page_purpose[:60] }}</td>
+                <td>{{ page.input_fields | length }}</td>
+                <td>{% if page.sensitive_data_visible %}<span class="sensitive-badge">SENSITIVE</span>{% endif %}</td>
+            </tr>
+        {% endfor %}
+        {% if site_map.pages | length > 50 %}
+            <tr><td colspan="5" style="text-align:center;color:var(--text-muted);">... and {{ site_map.pages | length - 50 }} more pages</td></tr>
+        {% endif %}
+        </tbody>
+    </table>
+    {% endif %}
+</div>
+{% endif %}
+
 <!-- OWASP Compliance Coverage Matrix -->
 <h2 class="section-title">OWASP Compliance Coverage Matrix</h2>
 <div class="compliance-section">
@@ -730,6 +969,34 @@ footer {
         </div>
         {% endif %}
 
+        <!-- Visual DAST Evidence (V3.0) -->
+        {% if f.visual_verdict %}
+        <div class="detail-section">
+            <h4>Visual DAST Analysis</h4>
+            <div class="visual-evidence">
+                {% if f.evidence.screenshot_path %}
+                <div class="visual-evidence-img">
+                    <img src="{{ f.evidence.screenshot_path }}" alt="Visual DAST Screenshot" loading="lazy" onclick="window.open(this.src, '_blank')">
+                </div>
+                {% endif %}
+                <div class="visual-evidence-text">
+                    <span class="visual-verdict-badge vv-{{ f.visual_verdict|lower }}">{{ f.visual_verdict | replace('_', ' ') }}</span>
+                    {% if f.visual_confidence is not none %}
+                    <span class="confidence-badge" style="margin-left:6px;">Confidence: {{ "%.0f"|format(f.visual_confidence * 100) }}%</span>
+                    {% endif %}
+                    {% if f.visual_reasoning %}
+                    <div class="visual-evidence-label">Reasoning</div>
+                    <div class="visual-evidence-content">{{ f.visual_reasoning }}</div>
+                    {% endif %}
+                    {% if f.visible_evidence %}
+                    <div class="visual-evidence-label">Visible Evidence</div>
+                    <div class="visual-evidence-content">{{ f.visible_evidence }}</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
         <div class="detail-section">
             <h4>Evidence Metadata</h4>
             <table class="summary-table">
@@ -872,6 +1139,8 @@ class ReportGenerator:
             summary=report.executive_summary,
             findings_list=all_findings,
             compliance_data=compliance_data,
+            site_map=report.site_map,
+            feature_inventory=report.feature_inventory,
         )
 
         html_path = self.output_dir / "security_report.html"

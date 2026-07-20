@@ -1,4 +1,9 @@
-"""Main orchestration flow for the API Security Testing Framework."""
+"""Main orchestration flow for the API Security Testing Framework.
+
+V3.0: Adds Autonomous AI Reconnaissance (Phase 0), Feature Inventory
+(Phase 0.5), and Safe Probe Execution before the existing HAR-based
+mutation pipeline.
+"""
 
 from __future__ import annotations
 
@@ -15,9 +20,11 @@ from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 from rich.table import Table
 
+from .autonomous_explorer import AutonomousExplorer
 from .endpoint_classifier import EndpointClassifier
 from .evidence_collector import EvidenceCollector
 from .executor import RequestExecutor
+from .feature_inventory import FeatureInventoryBuilder
 from .finding_evaluator import FindingEvaluator
 from .har_parser import parse_har_files
 from .llm_verifier import LLMVerifier
@@ -25,30 +32,44 @@ from .models import (
     APIEndpoint,
     ExecutiveSummary,
     Evidence,
+    FeatureInventory,
     FindingResult,
     FindingVerdict,
     MutatedRequest,
     Severity,
+    SiteMap,
+    TestPlan,
     TestReport,
 )
 from .mutation_engine import MutationEngine
 from .report_generator import ReportGenerator
+from .safe_executor import SafePayloadExecutor
 from .screenshot_capture import ScreenshotCapture
 from .test_case_engine import TestCaseEngine
+from .test_planner import SmartTestPlanner
+from .visual_auditor import VisualAuditor
 
 console = Console()
 
 
 class Orchestrator:
-    """Main orchestrator that runs the full security testing pipeline."""
+    """Main orchestrator that runs the full V3.0 security testing pipeline."""
 
-    def __init__(self, config_path: str | Path, har_files: list[str | Path] | None = None):
+    def __init__(
+        self,
+        config_path: str | Path,
+        har_files: list[str | Path] | None = None,
+        explore_only: bool = False,
+        skip_explore: bool = False,
+    ):
         self.config_path = Path(config_path)
         self.config: dict[str, Any] = {}
         self.credentials: dict[str, Any] = {}
         self.har_files = har_files or []
+        self.explore_only = explore_only
+        self.skip_explore = skip_explore
 
-        # Components (initialized in setup)
+        # V2.x Components
         self.classifier: EndpointClassifier | None = None
         self.test_engine: TestCaseEngine | None = None
         self.mutation_engine: MutationEngine | None = None
@@ -58,8 +79,20 @@ class Orchestrator:
         self.evaluator: FindingEvaluator | None = None
         self.report_generator: ReportGenerator | None = None
         self.llm_verifier: LLMVerifier | None = None
+        self.visual_auditor: VisualAuditor | None = None
 
-        # State
+        # V3.0 Components
+        self.autonomous_explorer: AutonomousExplorer | None = None
+        self.feature_inventory_builder: FeatureInventoryBuilder | None = None
+        self.test_planner: SmartTestPlanner | None = None
+        self.safe_executor: SafePayloadExecutor | None = None
+
+        # V3.0 State
+        self.site_map: SiteMap | None = None
+        self.feature_inventory: FeatureInventory | None = None
+        self.test_plan: TestPlan | None = None
+
+        # V2.x State
         self.endpoints: list[APIEndpoint] = []
         self.execution_plan: list[tuple[APIEndpoint, Any]] = []
         self.results: list[FindingResult] = []
@@ -153,13 +186,24 @@ class Orchestrator:
         # LLM Verifier (Hybrid AI — only reviews FINDING verdicts)
         self.llm_verifier = LLMVerifier(self.config)
 
+        # Visual Auditor (V2.3 — reviews screenshots via Vision LLM)
+        self.visual_auditor = VisualAuditor(self.config)
+
+        # V3.0: Autonomous Reconnaissance
+        self.autonomous_explorer = AutonomousExplorer(self.config)
+        self.feature_inventory_builder = FeatureInventoryBuilder()
+        self.test_planner = SmartTestPlanner()
+        self.safe_executor = SafePayloadExecutor(self.config)
+
     def run(self) -> TestReport:
-        """Execute the full security testing pipeline."""
+        """Execute the full V3.0 security testing pipeline."""
         self.scan_start = datetime.utcnow()
 
+        mode_label = "Explore-Only" if self.explore_only else "Full V3.0"
         console.print(Panel.fit(
-            "[bold cyan]SF API Security Tester[/bold cyan]\n"
+            "[bold cyan]SF API Security Tester V3.0[/bold cyan]\n"
             f"[dim]Project: {self.config.get('general', {}).get('project_name', 'Unknown')}[/dim]\n"
+            f"[dim]Mode: {mode_label}[/dim]\n"
             f"[dim]Dry Run: {self.config.get('general', {}).get('dry_run', False)}[/dim]",
             border_style="blue",
         ))
@@ -172,30 +216,59 @@ class Orchestrator:
             console=console,
         ) as progress:
 
-            # Step 1: Parse HAR files
-            task = progress.add_task("[cyan]Parsing HAR files...", total=None)
+            # Phase 0: Autonomous AI Reconnaissance (V3.0)
+            if not self.skip_explore:
+                task = progress.add_task(
+                    "[blue]AI Explorer: Mapping application...",
+                    total=None,
+                )
+                self._phase_0_explore()
+                progress.update(task, completed=1, total=1)
+
+                # Phase 0.5: Feature Inventory & Safe Probes (V3.0)
+                if self.site_map and self.site_map.pages:
+                    task = progress.add_task(
+                        f"[blue]Planning tests from {self.site_map.total_pages} discovered pages...",
+                        total=None,
+                    )
+                    self._phase_05_plan_and_probe()
+                    progress.update(task, completed=1, total=1)
+
+                if self.explore_only:
+                    console.print("[yellow]Explore-only mode — skipping attack phases[/yellow]")
+                    report = self._generate_reports()
+                    self.scan_end = datetime.utcnow()
+                    report.executive_summary.scan_start = self.scan_start
+                    report.executive_summary.scan_end = self.scan_end
+                    self._print_summary(report)
+                    return report
+            else:
+                logger.info("Phase 0 skipped (--skip-explore)")
+
+            # Phase 1: Parse HAR files
+            task = progress.add_task("[cyan]Phase 1: Parsing HAR files...", total=None)
             self._parse_har_files()
             progress.update(task, completed=1, total=1)
 
-            # Step 2: Classify endpoints
-            task = progress.add_task("[cyan]Classifying endpoints...", total=None)
+            # Phase 2: Classify endpoints
+            task = progress.add_task("[cyan]Phase 2: Classifying endpoints...", total=None)
             self._classify_endpoints()
             progress.update(task, completed=1, total=1)
 
-            # Step 3: Load test cases and build execution plan
-            task = progress.add_task("[cyan]Building execution plan...", total=None)
+            # Phase 2: Load test cases and build execution plan
+            task = progress.add_task("[cyan]Phase 2: Building execution plan...", total=None)
             self._build_execution_plan()
             progress.update(task, completed=1, total=1)
 
-            # Step 4: Execute tests
+            # Phase 3: Execute tests
             task = progress.add_task(
-                "[cyan]Executing tests...",
+                "[cyan]Phase 3: Executing mutations...",
                 total=len(self.execution_plan),
             )
             self._execute_tests(progress, task)
             progress.update(task, completed=len(self.execution_plan))
 
-            # Step 5: LLM verification of potential findings (Hybrid AI V2.2)
+            # Phase 4: LLM verification of potential findings
             potential_count = sum(
                 1 for r in self.results
                 if r.verdict == FindingVerdict.POTENTIAL_FINDING
@@ -221,7 +294,31 @@ class Orchestrator:
             else:
                 logger.info("No POTENTIAL_FINDINGs — LLM verification not needed")
 
-            # Step 6: Generate reports
+            # Phase 5: Visual DAST — Vision LLM screenshot analysis
+            visual_candidates = sum(
+                1 for r in self.results
+                if r.evidence
+                and r.evidence.screenshot_path
+                and r.verdict in (
+                    FindingVerdict.POTENTIAL_FINDING, FindingVerdict.FINDING
+                )
+            )
+
+            if visual_candidates > 0 and self.visual_auditor and self.visual_auditor.enabled:
+                task = progress.add_task(
+                    f"[blue]Visual AI: Analyzing {visual_candidates} screenshots for DOM XSS...",
+                    total=None,
+                )
+                self._audit_screenshots_with_visual_llm()
+                progress.update(task, completed=1, total=1)
+            else:
+                if visual_candidates > 0:
+                    logger.info(
+                        f"Visual audit skipped ({visual_candidates} candidates, "
+                        f"auditor disabled)"
+                    )
+
+            # Phase 6: Generate reports
             task = progress.add_task("[cyan]Generating reports...", total=None)
             report = self._generate_reports()
             progress.update(task, completed=1, total=1)
@@ -234,6 +331,76 @@ class Orchestrator:
         self._print_summary(report)
 
         return report
+
+    # ------------------------------------------------------------------
+    # Phase 0: Autonomous AI Reconnaissance
+    # ------------------------------------------------------------------
+    def _phase_0_explore(self):
+        """Autonomously explore the Salesforce portal using Playwright + Vision LLM."""
+        portals_config = self.config.get("portals", {})
+
+        # Explore each configured portal
+        for portal_key, portal_cfg in portals_config.items():
+            portal_url = portal_cfg.get("base_url", "")
+            if not portal_url:
+                continue
+
+            console.print(f"  [blue]Exploring {portal_cfg.get('name', portal_key)}: {portal_url}[/blue]")
+
+            # Get credentials for this portal
+            portal_creds = self.credentials.get("portals", {}).get(portal_key, {})
+
+            site_map = self.autonomous_explorer.explore(portal_url, portal_creds)
+
+            if self.site_map is None:
+                self.site_map = site_map
+            else:
+                # Merge site maps
+                self.site_map.pages.extend(site_map.pages)
+                self.site_map.total_pages = len(self.site_map.pages)
+                self.site_map.total_input_fields += site_map.total_input_fields
+                for cat, count in site_map.categories.items():
+                    self.site_map.categories[cat] = self.site_map.categories.get(cat, 0) + count
+                self.site_map.sensitive_pages.extend(site_map.sensitive_pages)
+
+        if self.site_map:
+            console.print(
+                f"  [green]Discovered {self.site_map.total_pages} pages, "
+                f"{self.site_map.total_input_fields} input fields[/green]"
+            )
+
+    # ------------------------------------------------------------------
+    # Phase 0.5: Feature Inventory & Safe Probes
+    # ------------------------------------------------------------------
+    def _phase_05_plan_and_probe(self):
+        """Build feature inventory from site map and execute safe probes."""
+        if not self.site_map or not self.site_map.pages:
+            return
+
+        # Build feature inventory
+        self.feature_inventory = self.feature_inventory_builder.build(self.site_map)
+        console.print(
+            f"  [green]Feature inventory: {self.feature_inventory.total_risks} "
+            f"risk surfaces identified[/green]"
+        )
+
+        # Generate test plan
+        self.test_plan = self.test_planner.plan(self.feature_inventory, self.site_map)
+        console.print(
+            f"  [green]Test plan: {self.test_plan.total_probes} safe probes "
+            f"ready[/green]"
+        )
+
+        # Execute safe probes
+        if self.test_plan.planned_tests:
+            probe_results = self.safe_executor.execute_probes(self.test_plan, self.site_map)
+            self.results.extend(probe_results)
+
+            potential = sum(1 for r in probe_results if r.verdict == FindingVerdict.POTENTIAL_FINDING)
+            console.print(
+                f"  [green]Safe probes: {potential} potential findings "
+                f"from {len(probe_results)} probes[/green]"
+            )
 
     def _parse_har_files(self):
         """Parse HAR files and extract endpoints."""
@@ -408,10 +575,11 @@ class Orchestrator:
             # Execute request
             http_request, http_response, execution_time_ms = self.executor.execute(mutation)
 
-            # Capture screenshot
+            # Capture screenshot + DOM context (V2.3)
             screenshot_path = None
+            element_outer_html = None
             try:
-                screenshot_path = asyncio.run(
+                result = asyncio.run(
                     self.screenshot_capture.capture_screenshot(
                         url=mutation.url,
                         test_case_id=test_case.id,
@@ -420,6 +588,8 @@ class Orchestrator:
                         label=test_case.name[:30],
                     )
                 )
+                if result:
+                    screenshot_path, element_outer_html = result
             except Exception as e:
                 logger.debug(f"Screenshot capture failed: {e}")
 
@@ -449,6 +619,10 @@ class Orchestrator:
                 evidence=evidence,
                 mutation_description=mutation.mutation_description,
             )
+
+            # Attach DOM context for Visual DAST (V2.3)
+            if element_outer_html:
+                finding_result.element_outer_html = element_outer_html
 
             # Keep the most severe result
             if best_result is None:
@@ -527,12 +701,58 @@ class Orchestrator:
                 f.verdict = FindingVerdict.FINDING
         return self.results
 
+    def _audit_screenshots_with_visual_llm(self):
+        """Send screenshots to Vision LLM for visual security analysis.
+
+        Only processes findings that have a screenshot AND whose payload
+        was reflected in the HTTP response body.
+        """
+        if not self.visual_auditor or not self.visual_auditor.enabled:
+            return
+
+        console.print(
+            "  [blue]Visual AI: Analysing screenshots for "
+            "DOM XSS and data exposure...[/blue]"
+        )
+
+        try:
+            self.results = self.visual_auditor.audit_batch(self.results)
+        except Exception as e:
+            logger.error(f"Visual audit batch failed: {e}")
+            console.print(f"  [yellow]Visual audit error: {e}[/yellow]")
+            return
+
+        # Print visual audit summary
+        confirmed = sum(
+            1 for r in self.results if r.visual_verdict == "CONFIRMED_XSS"
+        )
+        reflected = sum(
+            1 for r in self.results if r.visual_verdict == "REFLECTED_NOT_EXECUTED"
+        )
+        data_exp = sum(
+            1 for r in self.results if r.visual_verdict == "DATA_EXPOSURE"
+        )
+
+        if confirmed or reflected or data_exp:
+            console.print(
+                f"  [blue]Visual AI complete: "
+                f"{confirmed} confirmed XSS, "
+                f"{reflected} reflected (not executed), "
+                f"{data_exp} data exposure[/blue]"
+            )
+
     def _generate_reports(self) -> TestReport:
         """Generate the final report."""
         # Compute LLM verification stats
         llm_tp = sum(1 for r in self.results if r.llm_verdict == "TRUE_POSITIVE")
         llm_fp = sum(1 for r in self.results if r.llm_verdict == "FALSE_POSITIVE")
         llm_mr = sum(1 for r in self.results if r.llm_verdict == "NEEDS_MANUAL_REVIEW")
+
+        # Compute visual audit stats
+        visual_xss = sum(
+            1 for r in self.results
+            if r.visual_verdict in ("CONFIRMED_XSS", "REFLECTED_NOT_EXECUTED", "DATA_EXPOSURE")
+        )
 
         # Build executive summary
         summary = ExecutiveSummary(
@@ -550,6 +770,7 @@ class Orchestrator:
             llm_true_positives=llm_tp,
             llm_false_positives=llm_fp,
             llm_manual_review=llm_mr,
+            visual_findings_count=visual_xss,
             portals_tested=list({ep.portal_name for ep in self.endpoints}),
         )
 
@@ -561,6 +782,8 @@ class Orchestrator:
             executive_summary=summary,
             findings=findings,
             all_results=self.results,
+            site_map=self.site_map,
+            feature_inventory=self.feature_inventory,
         )
 
         # Generate files
@@ -597,6 +820,11 @@ class Orchestrator:
             table.add_row("LLM Confirmed (TP)", f"[green]{summary.llm_true_positives}[/green]")
             table.add_row("LLM Eliminated (FP)", f"[cyan]{summary.llm_false_positives}[/cyan]")
             table.add_row("LLM Manual Review", f"[yellow]{summary.llm_manual_review}[/yellow]")
+
+        # Visual audit stats
+        if summary.visual_findings_count:
+            table.add_row("─" * 20, "─" * 10)
+            table.add_row("Visual XSS/Data Exposure", f"[blue]{summary.visual_findings_count}[/blue]")
 
         console.print()
         console.print(table)

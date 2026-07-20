@@ -1,4 +1,7 @@
-"""Playwright-based screenshot capture for live evidence."""
+"""Playwright-based screenshot capture for live evidence.
+
+V2.3: Now also extracts DOM outerHTML for Visual DAST analysis.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +12,9 @@ from typing import Optional
 from loguru import logger
 
 from .models import MutatedRequest
+
+# Max chars for DOM snippet sent to Vision LLM
+_MAX_DOM_CHARS = 2000
 
 
 class ScreenshotCapture:
@@ -88,10 +94,14 @@ class ScreenshotCapture:
         endpoint_id: str,
         mutated_request: MutatedRequest | None = None,
         label: str = "",
-    ) -> str | None:
-        """Synchronous wrapper for screenshot capture."""
+    ) -> tuple[str | None, str | None]:
+        """Synchronous wrapper for screenshot capture.
+
+        Returns:
+            (screenshot_path, element_outer_html)
+        """
         if not self.enabled:
-            return None
+            return None, None
 
         try:
             loop = asyncio.get_event_loop()
@@ -105,16 +115,17 @@ class ScreenshotCapture:
                             url, test_case_id, endpoint_id, mutated_request, label
                         ),
                     ).result(timeout=self.timeout / 1000 + 10)
-                return result
+                return result if result else (None, None)
             else:
-                return loop.run_until_complete(
+                result = loop.run_until_complete(
                     self._capture_screenshot(
                         url, test_case_id, endpoint_id, mutated_request, label
                     )
                 )
+                return result if result else (None, None)
         except Exception as e:
             logger.error(f"Screenshot capture failed: {e}")
-            return None
+            return None, None
 
     async def capture_screenshot(
         self,
@@ -123,8 +134,12 @@ class ScreenshotCapture:
         endpoint_id: str,
         mutated_request: MutatedRequest | None = None,
         label: str = "",
-    ) -> str | None:
-        """Capture a screenshot of a URL."""
+    ) -> tuple[str | None, str | None]:
+        """Capture a screenshot and extract DOM context.
+
+        Returns:
+            (screenshot_path, element_outer_html)
+        """
         return await self._capture_screenshot(
             url, test_case_id, endpoint_id, mutated_request, label
         )
@@ -136,15 +151,22 @@ class ScreenshotCapture:
         endpoint_id: str,
         mutated_request: MutatedRequest | None = None,
         label: str = "",
-    ) -> str | None:
-        """Internal screenshot capture implementation."""
+    ) -> tuple[str | None, str | None]:
+        """Internal screenshot capture implementation.
+
+        Returns:
+            (screenshot_path, element_outer_html) — DOM is truncated to
+            ``_MAX_DOM_CHARS`` for Vision LLM token economy.
+        """
         if not self.enabled:
-            return None
+            return None, None
+
+        element_html: str | None = None
 
         try:
             await self._ensure_browser()
             if not self._context:
-                return None
+                return None, None
 
             page = await self._context.new_page()
 
@@ -176,8 +198,11 @@ class ScreenshotCapture:
                     full_page=self.full_page,
                 )
 
+                # --- V2.3: Extract DOM context for Visual DAST ---
+                element_html = await self._extract_dom_context(page, mutated_request)
+
                 logger.debug(f"Screenshot saved: {screenshot_path}")
-                return str(screenshot_path)
+                return str(screenshot_path), element_html
 
             except Exception as e:
                 # Even if navigation fails, try to capture the error page
@@ -185,16 +210,64 @@ class ScreenshotCapture:
                     error_filename = f"{test_case_id}_{endpoint_id}_error.png"
                     error_path = self.output_dir / error_filename
                     await page.screenshot(path=str(error_path))
+                    element_html = await self._extract_dom_context(page, None)
                     logger.debug(f"Error page screenshot saved: {error_path}")
-                    return str(error_path)
+                    return str(error_path), element_html
                 except Exception:
                     logger.warning(f"Could not capture error page screenshot: {e}")
-                    return None
+                    return None, None
             finally:
                 await page.close()
 
         except Exception as e:
             logger.error(f"Screenshot capture error: {e}")
+            return None, None
+
+    async def _extract_dom_context(
+        self, page, mutated_request: MutatedRequest | None = None
+    ) -> str | None:
+        """Extract DOM outerHTML from the page for Visual DAST analysis.
+
+        If a payload is present in the mutated request body, try to find
+        elements containing that payload.  Otherwise, fall back to body HTML.
+        """
+        try:
+            # Try to find elements containing the injected payload
+            payload_text = None
+            if mutated_request and mutated_request.body:
+                # Extract a recognizable substring from the payload
+                # (first 50 chars that aren't JSON structural chars)
+                import re
+                clean = re.sub(r'[{}\[\]",:]', ' ', mutated_request.body)
+                words = [w for w in clean.split() if len(w) > 3]
+                if words:
+                    payload_text = words[0][:50]
+
+            if payload_text:
+                # Try to find an element containing the payload
+                element_html = await page.evaluate(f"""() => {{
+                    const walker = document.createTreeWalker(
+                        document.body, NodeFilter.SHOW_ELEMENT, null, false
+                    );
+                    while (walker.nextNode()) {{
+                        const el = walker.currentNode;
+                        if (el.outerHTML && el.outerHTML.includes({repr(payload_text)})) {{
+                            return el.outerHTML.substring(0, {_MAX_DOM_CHARS});
+                        }}
+                    }}
+                    return null;
+                }}""")
+                if element_html:
+                    return element_html
+
+            # Fallback: return body outerHTML truncated
+            body_html = await page.evaluate(f"""() => {{
+                return document.body ? document.body.outerHTML.substring(0, {_MAX_DOM_CHARS}) : '';
+            }}""")
+            return body_html if body_html else None
+
+        except Exception as e:
+            logger.debug(f"DOM extraction failed: {e}")
             return None
 
     async def _inject_evidence_overlay(

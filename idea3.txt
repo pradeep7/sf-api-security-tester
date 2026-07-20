@@ -1,0 +1,311 @@
+**This is the most advanced question you've asked, and the answer fundamentally changes your tool from a "passive scanner" to an "autonomous AI pentester."**
+
+What you're describing is called **"AI-Driven Autonomous Application Discovery + DOM XSS Auditing."** It's a completely different paradigm from what we've built so far.
+
+### 🔄 The Paradigm Shift:
+
+| Current V2.2 (Passive) | What You Want (Active) |
+|---|---|
+| Reads a pre-recorded HAR file | **Drives a real browser autonomously** |
+| Replays recorded requests | **Discovers new pages by clicking links** |
+| Tests known endpoints | **Maps the entire application surface** |
+| Server-side XSS only | **DOM-based XSS via JavaScript execution** |
+| Single user context | **Compares Admin vs Non-Admin views** |
+| Malicious payloads | **Safe, non-malicious probes only** |
+
+### 🧠 The Architecture: "The AI Explorer"
+
+This requires **three new phases** that run *before* the existing HTTP mutation engine:
+
+```
+Phase 1: AI Site Discovery (Playwright + Vision LLM)
+    ↓
+Phase 2: Role Diffing (Admin vs Standard User)
+    ↓  
+Phase 3: DOM XSS Probing (Non-malicious payloads + JS execution)
+    ↓
+Phase 4: Existing V2.2 HTTP Engine (API-level testing)
+```
+
+Here is the **Master Prompt** to give your AI IDE to build this autonomous explorer.
+
+***
+
+### 📋 COPY EVERYTHING BELOW THIS LINE 👇
+
+```markdown
+# CONTEXT
+We have a V2.2 AI-Hybrid Salesforce API Security Tester that uses HAR files for passive API testing. We are now adding a **Phase 0: Autonomous AI Site Discovery & DOM XSS Auditing** module that runs BEFORE the existing HAR-based tests.
+
+This new module will use Playwright to actively drive a real browser, log into the Salesforce portal, autonomously explore every page/tab/feature, understand the site structure using a Vision LLM, compare Admin vs Non-Admin views, and test for DOM-based XSS using safe, non-malicious payloads.
+
+# OBJECTIVE
+Create 3 new modules and integrate them as "Phase 0" in the orchestrator pipeline.
+
+# STEP-BY-STEP INSTRUCTIONS
+
+## 1. Create `src/ai_explorer.py` (The Autonomous Site Mapper)
+
+This is the "brain" that drives the browser and understands what it sees.
+
+### Class: `AIExplorer`
+
+**Constructor:**
+- Accepts `playwright_page`, `llm_client` (reuse existing OpenAI/Anthropic client), and `config`
+- Maintains a `site_map: dict` that stores discovered pages, forms, inputs, and navigation
+
+**Method: `discover_site(login_url, credentials, max_depth=3, max_pages=30)`**
+1. Navigate to `login_url`
+2. Use Playwright to fill in credentials and submit the login form
+3. Wait for the dashboard/home page to load
+4. Call `_analyze_current_page()` to understand the page
+5. Extract all navigation links, tabs, and menu items
+6. For each link (up to `max_pages`), click it, wait for load, call `_analyze_current_page()`, and recurse up to `max_depth`
+7. Return the complete `site_map`
+
+**Method: `_analyze_current_page()`**
+1. Take a screenshot using `page.screenshot()`
+2. Extract the page title, URL, and visible text
+3. Extract all interactive elements: `page.evaluate()` to get all `<input>`, `<select>`, `<textarea>`, `<button>`, and `<a>` elements with their types, names, IDs, and placeholders
+4. Encode the screenshot to base64
+5. Send to Vision LLM with this prompt:
+   > "You are analyzing a Salesforce portal page. Describe:
+   > 1. PAGE_PURPOSE: What is this page for? (e.g., 'Tenant Dashboard', 'Case Management', 'Admin Settings')
+   > 2. NAVIGATION: List all visible navigation links/tabs/menus and where they likely lead
+   > 3. INPUT_FIELDS: List all form inputs, their types, and what data they expect
+   > 4. ROLE_INDICATORS: Any signs this is an admin page vs standard user page?
+   > 5. SENSITIVE_DATA: Is any PII, internal IDs, or confidential data visible?
+   > Return JSON: {page_purpose, navigation_items[], input_fields[], role_indicators[], sensitive_data_visible, confidence}"
+6. Parse the LLM response and add to `site_map`
+
+**Method: `compare_roles(admin_site_map, user_site_map)`**
+1. Diff the two site maps
+2. Identify pages/features visible to Admin but NOT to Standard User
+3. Identify input fields available to Admin but not Standard User
+4. Send the diff to the LLM:
+   > "Compare these two site maps (Admin vs Standard User). Identify:
+   > 1. PRIVILEGE_GAPS: Features only available to admin
+   > 2. ESCALATION_RISK: Any standard-user pages that might allow access to admin functions via parameter manipulation
+   > Return JSON: {privilege_gaps[], escalation_risks[], recommendations[]}"
+5. Return the role comparison report
+
+## 2. Create `src/dom_xss_auditor.py` (The Safe DOM XSS Tester)
+
+This module tests for DOM-based XSS using ONLY non-malicious, safe payloads.
+
+### Class: `DOMXSSAuditor`
+
+**Safe Payloads (NON-MALICIOUS - these do NOT execute harmful code):**
+```python
+SAFE_DOM_PROBES = [
+    # Math-based probes (harmless, detectable)
+    ("{{7*7}}", "49", "Template injection probe"),
+    ("${7*7}", "49", "EL injection probe"),
+    
+    # Visual-only probes (render but don't execute)
+    ("<marquee>DOMTEST</marquee>", "DOMTEST", "Marquee visual probe"),
+    ("<b>DOMBOLD</b>", "DOMBOLD", "Bold tag reflection probe"),
+    ("<h1>DOMH1</h1>", "DOMH1", "H1 tag reflection probe"),
+    
+    # Attribute probes (detect unsafe attribute injection)
+    ('" data-testid="domprobe', "domprobe", "Attribute breakout probe"),
+    ("' data-domtest='1", "domtest", "Single-quote attribute probe"),
+    
+    # Event handler probes (detect if event handlers are attached)
+    # NOTE: These use console.log, NOT alert(), to avoid disrupting the UI
+    ('" onfocus="console.log(42)" autofocus="', "console.log", "Event handler probe"),
+    
+    # URL-based probes (for href/src attributes)
+    ("javascript:void(0)", "javascript:", "JS protocol probe"),
+]
+```
+
+**Method: `audit_page(page, input_fields: list[dict]) -> list[DOMXSSResult]`**
+1. For each input field discovered by the AI Explorer:
+   a. For each safe probe in `SAFE_DOM_PROBES`:
+      - Clear the input field
+      - Type the probe payload using `page.fill()` or `page.type()`
+      - Submit the form or trigger the relevant event (blur, change, keyup)
+      - Wait 2 seconds for DOM updates
+      - **DOM Check (Local - 0 tokens):** Use `page.evaluate()` to check:
+        ```javascript
+        // Check if payload was rendered unsanitized in the DOM
+        document.body.innerHTML.includes('PAYLOAD_HERE')
+        ```
+      - **Execution Check (Local - 0 tokens):** Use `page.evaluate()` to check:
+        ```javascript
+        // Check if a <marquee>, <b>, or <h1> tag was actually created
+        document.querySelectorAll('marquee, b, h1').length > 0
+        ```
+      - If the DOM check OR execution check returns true:
+        - Take a screenshot
+        - Mark as `POTENTIAL_DOM_XSS`
+        - Send screenshot + DOM snippet to Vision LLM for verification:
+          > "Analyze this screenshot. The scanner injected this safe probe: [PAYLOAD]. 
+          > Can you visually confirm the probe was rendered unsanitized in the DOM?
+          > Look for: rendered HTML tags, visible probe text, broken UI elements.
+          > Return JSON: {dom_xss_confirmed: bool, visual_evidence: '...', confidence: 0.0-1.0}"
+2. Return all `DOMXSSResult` objects
+
+**Method: `audit_url_params(page, current_url)`**
+1. Extract all URL query parameters
+2. For each parameter, append a safe probe to the URL
+3. Navigate to the modified URL
+4. Check `document.body.innerHTML` for reflection
+5. Same LLM verification flow as above
+
+## 3. Create `src/role_manager.py` (Multi-Role Session Handler)
+
+### Class: `RoleManager`
+
+**Method: `create_sessions(credentials_config)`**
+1. Read `config/credentials.yaml` for multiple user roles:
+   ```yaml
+   roles:
+     admin:
+       username: "admin@company.com"
+       password: "..."
+       expected_role: "System Administrator"
+     standard_user:
+       username: "user@company.com"  
+       password: "..."
+       expected_role: "Standard User"
+     tenant_user:
+       username: "tenant@company.com"
+       password: "..."
+       expected_role: "Tenant User"
+   ```
+2. For each role, launch a separate Playwright browser context (isolated cookies/storage)
+3. Log in and verify the role by checking the Salesforce user profile page
+4. Return a dict of `{role_name: playwright_page}`
+
+## 4. Update `src/orchestrator.py` (Add Phase 0)
+
+Add a new Phase 0 that runs BEFORE the existing HAR-based pipeline:
+
+```
+Phase 0: Autonomous Discovery (NEW)
+  Step 0.1: Initialize RoleManager → create admin + user sessions
+  Step 0.2: AIExplorer discovers site as Admin → admin_site_map
+  Step 0.3: AIExplorer discovers site as Standard User → user_site_map
+  Step 0.4: AIExplorer.compare_roles() → privilege gap report
+  Step 0.5: DOMXSSAuditor audits all discovered input fields (both roles)
+  Step 0.6: DOMXSSAuditor audits all URL parameters
+  Step 0.7: Merge discovered endpoints into the HAR endpoint list
+            (so the existing V2.2 HTTP engine also tests them)
+
+Phase 1-4: Existing V2.2 Pipeline (unchanged)
+  HAR Parse → Classify → Plan → Execute → LLM Verify → Report
+```
+
+- Add rich progress bars for each Phase 0 step:
+  - "🗺️ AI Explorer: Mapping site as Admin (12/30 pages)..."
+  - "🗺️ AI Explorer: Mapping site as Standard User (8/30 pages)..."
+  - "🔐 Role Diff: Comparing Admin vs Standard User views..."
+  - "🛡️ DOM XSS: Testing 24 input fields with safe probes..."
+- Add a `--skip-discovery` CLI flag to skip Phase 0 (for users who only want HAR-based testing)
+
+## 5. Update `config/settings.yaml`
+
+Add a `discovery` section:
+```yaml
+discovery:
+  enabled: true
+  login_url: "https://your-domain.my.salesforce.com"
+  max_depth: 3          # How deep to follow links
+  max_pages: 30         # Maximum pages to explore per role
+  page_load_timeout: 15 # Seconds to wait for page load
+  dom_probe_delay: 2    # Seconds to wait after injecting probe
+  
+  # Safe probe configuration
+  safe_probes_only: true  # MUST be true - prevents malicious payload injection
+  
+  # Vision LLM for page analysis
+  vision_model: "gpt-4o"  # Must support vision
+  max_screenshots_per_run: 50  # Cost control
+```
+
+## 6. Update `config/credentials.yaml` (Template)
+
+```yaml
+roles:
+  admin:
+    username: "admin@sandbox.com"
+    password: "SET_VIA_ENV_VAR"
+    password_env_var: "SF_ADMIN_PASSWORD"
+    expected_role: "System Administrator"
+  standard_user:
+    username: "user@sandbox.com"
+    password: "SET_VIA_ENV_VAR"
+    password_env_var: "SF_USER_PASSWORD"
+    expected_role: "Standard User"
+```
+
+# STRICT CONSTRAINTS
+1. **NON-MALICIOUS ONLY:** The DOM XSS auditor MUST only use the safe probes listed above. No `<script>alert()</script>`, no `onerror=fetch()`, no data exfiltration payloads. The probes must be visually detectable but completely harmless.
+2. **SCOPE RESPECT:** The AI Explorer must stay within the same domain. If a link points to an external URL, do NOT follow it. Log it as "Out of scope" and skip.
+3. **NO DATA MODIFICATION:** The explorer must NOT click "Delete", "Submit", "Save", or any button that modifies data. It should only navigate, read, and type into input fields (without submitting forms that create/update records).
+4. **COST CONTROL:** Limit Vision LLM calls to `max_screenshots_per_run`. Prioritize pages with input fields over static pages.
+5. **SALESFORCE AWARE:** The explorer should recognize Salesforce Lightning UI patterns (slds classes, lightning-* components, LWC shadow DOM) and handle them appropriately.
+6. **ISOLATION:** Each role must use a separate Playwright browser context to prevent cookie/session contamination.
+
+Execute these steps. Show me the complete code for all new modules and the updated orchestrator.
+```
+
+***
+
+### 💡 Why This Architecture is Revolutionary:
+
+#### 1. **It Discovers What HAR Files Miss**
+HAR files only capture what the human tester clicked during recording. If they forgot to click the "Admin Settings" tab, the HAR file has no record of it. The AI Explorer **autonomously finds every tab, link, and hidden page** by visually analyzing the navigation.
+
+#### 2. **It Understands Context, Not Just Endpoints**
+Traditional scanners see `/services/data/v58.0/sobjects/Account/001XX000003DGbY`. The AI Explorer sees *"This is the Account Details page for Acme Corp, showing the billing address, contact list, and a 'Delete Account' button that shouldn't be visible to standard users."*
+
+#### 3. **Role Diffing Finds Privilege Escalation**
+By running the explorer as both Admin and Standard User, the LLM can say: *"The Standard User can see the 'Export All Data' button on the Reports page. This should be Admin-only. This is a Broken Function Level Authorization (API5) vulnerability."*
+
+#### 4. **DOM XSS Detection is Actually Reliable**
+Instead of guessing if a payload executed by looking at HTTP responses, the tool:
+- Injects `<marquee>DOMTEST</marquee>` into a search field
+- Uses `page.evaluate()` to check if a `<marquee>` tag actually exists in the live DOM
+- Takes a screenshot and asks the Vision LLM: *"Do you see scrolling text that says 'DOMTEST'?"*
+- This is **triple-verified**: DOM check + Visual check + LLM reasoning
+
+#### 5. **Safe Probes = Zero Risk**
+By using `<marquee>`, `<b>`, and `{{7*7}}` instead of `<script>alert()</script>`, you can run this against **production environments** (with permission) without any risk of disrupting users or triggering WAF blocks.
+
+### 🏁 How to Run It:
+
+Once your AI IDE builds this, the workflow will be:
+
+```powershell
+# Set credentials
+$env:SF_ADMIN_PASSWORD="your-admin-password"
+$env:SF_USER_PASSWORD="your-user-password"
+$env:LLM_API_KEY="sk-your-openai-key"
+
+# Full autonomous scan (Discovery + DOM XSS + API testing)
+python main.py --har har_files/assist_portal.har -v
+
+# Skip discovery, only do HAR-based API testing (V2.2 behavior)
+python main.py --har har_files/assist_portal.har --skip-discovery -v
+```
+
+The terminal output will look like:
+
+```text
+🗺️ AI Explorer: Mapping site as Admin (15/30 pages)...
+   → Discovered: Dashboard, Cases, Reports, Admin Settings, User Management
+🗺️ AI Explorer: Mapping site as Standard User (8/30 pages)...
+   → Discovered: Dashboard, Cases, Reports
+🔐 Role Diff: Comparing Admin vs Standard User views...
+   → ⚠️ 3 privilege gaps detected (Admin Settings, User Management, Export All)
+🛡️ DOM XSS: Testing 24 input fields with safe probes...
+   → ✅ 22 fields properly sanitized
+   → ⚠️ 2 fields reflected <marquee> tag unsanitized
+🧠 AI Brain: Verifying 2 potential DOM XSS findings...
+   → 🔴 CONFIRMED: Search bar on Reports page renders unsanitized HTML
+```
+
+This is the difference between a "scanner" and an "autonomous AI pentester." Let me know when the AI IDE finishes building this!

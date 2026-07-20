@@ -82,6 +82,16 @@ Examples:
         type=str,
         help="Portal names corresponding to HAR files (e.g., --portals assist_portal tenant_portal)",
     )
+    parser.add_argument(
+        "--explore-only",
+        action="store_true",
+        help="Run Phase 0 & 0.5 only — map the application without attack testing",
+    )
+    parser.add_argument(
+        "--skip-explore",
+        action="store_true",
+        help="Skip Phase 0 autonomous exploration — rely purely on HAR files (V2.x behavior)",
+    )
 
     return parser.parse_args()
 
@@ -121,20 +131,28 @@ def main() -> int:
         if input_dir.exists():
             har_files = list(input_dir.glob("*.har"))
 
-    if not har_files:
+    # In explore-only mode, HAR files are optional
+    if not har_files and not args.explore_only:
         console.print("[yellow]No HAR files found. Place .har files in the input/ directory.[/yellow]")
         console.print("[dim]Example: Copy browser HAR exports to input/assist_portal.har[/dim]")
+        console.print("[dim]Or use --explore-only to map the application first.[/dim]")
         return 1
 
-    console.print(f"[green]Found {len(har_files)} HAR file(s):[/green]")
-    for har in har_files:
-        console.print(f"  [dim]{har.name}[/dim]")
+    if har_files:
+        console.print(f"[green]Found {len(har_files)} HAR file(s):[/green]")
+        for har in har_files:
+            console.print(f"  [dim]{har.name}[/dim]")
 
     # Import and apply CLI overrides
     from src.orchestrator import Orchestrator
 
     try:
-        orchestrator = Orchestrator(config_path=config_path, har_files=har_files)
+        orchestrator = Orchestrator(
+            config_path=config_path,
+            har_files=har_files,
+            explore_only=args.explore_only,
+            skip_explore=args.skip_explore,
+        )
         orchestrator.setup()
 
         # Apply CLI overrides
