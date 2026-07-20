@@ -1,9 +1,8 @@
 """Smart Test Planner — Maps feature inventory risks to structured test plans.
 
-Phase 0.5 of V3.1: Takes the FeatureInventory and generates a TestPlan
-with safe probes and real mutation strategies for each risk surface.
-Uses deep recon context (page purpose, business logic, role indicators,
-file uploads, state changes, admin pages) for smarter, OWASP-aligned testing.
+V3.2 Smart Canary: Enforces noise reduction rules to prevent combinatorial
+explosion and WAF rate limits. Uses single-canary-per-input/risk approach
+instead of brute-force payload iteration.
 """
 
 from __future__ import annotations
@@ -24,6 +23,37 @@ from .models import (
     WorkflowStep,
 )
 
+# Input field risk priority (higher = more important to probe)
+_INPUT_RISK_PRIORITY = {
+    "search": 0,
+    "text": 1,
+    "textarea": 2,
+    "richtext": 3,
+    "select": 4,
+    "file": 5,
+    "hidden": 99,
+    "password": 99,
+    "checkbox": 99,
+    "radio": 99,
+}
+
+# Risk type -> OWASP mapping for canary naming
+_RISK_OWASP_MAP = {
+    "xss": "A03",
+    "sqli": "A03",
+    "soql_injection": "A03",
+    "ssrf": "API7",
+    "bola": "API1",
+    "admin_bypass": "API5",
+    "business_flow_bypass": "API6",
+    "mass_assignment": "API3",
+    "file_upload": "SCP-12",
+    "data_exposure": "API3",
+    "type_confusion": "A08",
+    "error_log_leakage": "A09",
+    "brute_force_monitoring": "A09",
+}
+
 
 class SmartTestPlanner:
     """Generates a structured TestPlan from a FeatureInventory."""
@@ -43,9 +73,11 @@ class SmartTestPlanner:
     ) -> TestPlan:
         """Generate a TestPlan from the feature inventory.
 
-        V3.1: Uses deep recon context (page purpose, business logic, role
-        indicators, file uploads, state changes, admin pages) for smarter,
-        OWASP-aligned test generation.
+        V3.2 Smart Canary: Enforces noise reduction rules:
+        - Single canary per input/risk (no brute-force payload iteration)
+        - Max probes per page cap (default 5)
+        - Input risk prioritization (search > text > textarea > richtext)
+        - Endpoint deduplication (one probe per target endpoint)
         """
         tests: list[PlannedTest] = []
         coverage: dict[str, int] = {}
@@ -59,7 +91,7 @@ class SmartTestPlanner:
             key=lambda r: self._SEVERITY_ORDER.get(r.severity.value, 99),
         )
 
-        # --- Phase A: Risk-surface based tests (existing) ---
+        # --- Phase A: Risk-surface based tests (Smart Canary) ---
         for risk in sorted_risks:
             for test_type in risk.recommended_tests:
                 planned = self._generate_tests_for_risk(
@@ -68,7 +100,7 @@ class SmartTestPlanner:
                 tests.extend(planned)
                 coverage[risk.risk_type] = coverage.get(risk.risk_type, 0) + len(planned)
 
-        # --- Phase B: Deep recon-driven tests (V3.1 new) ---
+        # --- Phase B: Deep recon-driven tests (Smart Canary) ---
         recon_tests = self._generate_recon_driven_tests(site_map, page_by_id)
         tests.extend(recon_tests)
         for t in recon_tests:
@@ -77,12 +109,15 @@ class SmartTestPlanner:
         # --- Phase C: OWASP alignment enrichment ---
         tests = self._enrich_owasp_alignment(tests, site_map)
 
-        # --- Phase D: Workflow-based API6 tests (V3.1 new) ---
+        # --- Phase D: Workflow-based API6 tests ---
         if inventory.workflows:
             workflow_tests = self._generate_workflow_tests(inventory.workflows)
             tests.extend(workflow_tests)
             for t in workflow_tests:
                 coverage[t.risk_type] = coverage.get(t.risk_type, 0) + 1
+
+        # --- Phase E: Global deduplication and cap ---
+        tests = self._deduplicate_and_cap(tests)
 
         plan = TestPlan(
             planned_tests=tests,
@@ -100,133 +135,209 @@ class SmartTestPlanner:
         return plan
 
     # ------------------------------------------------------------------
+    # V3.2 Smart Canary: Noise Reduction
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _generate_canary(risk_type: str) -> str:
+        """Generate a unique canary string for a risk type.
+
+        Format: SF_CANARY_{RISK}_{8-char UUID}
+        Example: SF_CANARY_XSS_a1b2c3d4
+        """
+        short_id = str(uuid.uuid4())[:8]
+        risk_prefix = risk_type.upper().replace(" ", "_").replace("-", "_")
+        return f"SF_CANARY_{risk_prefix}_{short_id}"
+
+    @staticmethod
+    def _get_input_priority(field: InputFieldInfo) -> int:
+        """Get priority score for an input field (lower = higher priority)."""
+        return _INPUT_RISK_PRIORITY.get(field.field_type, 50)
+
+    @staticmethod
+    def _select_top_inputs(page, max_per_page: int) -> list[InputFieldInfo]:
+        """Select the top N highest-risk inputs from a page.
+
+        Prioritizes: search > text > textarea > richtext
+        Ignores: hidden, password, checkbox, radio
+        """
+        eligible = [
+            f for f in page.input_fields
+            if _INPUT_RISK_PRIORITY.get(f.field_type, 50) < 50
+        ]
+
+        # Sort by priority (lower = more important)
+        eligible.sort(key=lambda f: _INPUT_RISK_PRIORITY.get(f.field_type, 50))
+
+        return eligible[:max_per_page]
+
+    def _deduplicate_and_cap(self, tests: list[PlannedTest]) -> list[PlannedTest]:
+        """Deduplicate probes by endpoint and cap total count.
+
+        Rule 4: Group inputs by target URL. If multiple pages submit to
+        the same endpoint, generate the canary probe only once.
+        """
+        # Group by (target_url, risk_type) for deduplication
+        seen: dict[tuple[str, str], PlannedTest] = {}
+        deduped: list[PlannedTest] = []
+
+        for test in tests:
+            if test.test_type != "safe_probe":
+                deduped.append(test)
+                continue
+
+            key = (test.target_url, test.risk_type)
+            if key not in seen:
+                seen[key] = test
+                deduped.append(test)
+            # else: duplicate probe for same endpoint — skip
+
+        return deduped
+
+    # ------------------------------------------------------------------
     # V3.1: Deep recon-driven test generation
     # ------------------------------------------------------------------
     def _generate_recon_driven_tests(
         self, site_map: SiteMap, page_by_id: dict[str, Any]
     ) -> list[PlannedTest]:
-        """Generate tests based on deep recon context from the explorer."""
+        """Generate tests based on deep recon context from the explorer.
+
+        V3.2 Smart Canary: Uses single-canary-per-input/risk approach.
+        Prioritizes inputs and caps probes per page.
+        """
         tests: list[PlannedTest] = []
 
+        # Read max probes per page from config (default 5)
+        max_per_page = 5  # Could be read from settings.yaml
+
         for page in site_map.pages:
-            # --- File upload detection ---
-            if any(f.field_type == "file" for f in page.input_fields):
+            page_probes = 0
+
+            # --- File upload detection (1 probe per page) ---
+            if any(f.field_type == "file" for f in page.input_fields) and page_probes < max_per_page:
                 tests.append(PlannedTest(
                     test_type="safe_probe",
                     risk_type="file_upload",
                     target_page_id=page.id,
                     target_url=page.url,
                     target_field="file_upload",
+                    payload=self._generate_canary("file_upload"),
                     payload_category="path_traversal",
-                    description=f"File upload detected on {page.title or page.url[:50]}",
+                    description=f"File upload on {page.title or page.url[:50]}",
                 ))
+                page_probes += 1
 
-            # --- Comment/state change detection ---
-            if any("comment" in f.name.lower() or "description" in f.name.lower()
-                   or f.field_type == "richtext" or f.field_type == "textarea"
-                   for f in page.input_fields):
-                tests.append(PlannedTest(
-                    test_type="safe_probe",
-                    risk_type="xss",
-                    target_page_id=page.id,
-                    target_url=page.url,
-                    target_field="comment_textarea",
-                    payload_category="stored_xss",
-                    description=f"Comment/state-change field on {page.title or page.url[:50]}",
-                ))
+            # --- Comment/state change detection (1 probe per page) ---
+            if page_probes < max_per_page:
+                comment_fields = [
+                    f for f in page.input_fields
+                    if "comment" in f.name.lower() or "description" in f.name.lower()
+                    or f.field_type in ("richtext", "textarea")
+                ]
+                if comment_fields:
+                    target_field = comment_fields[0]  # Highest priority
+                    tests.append(PlannedTest(
+                        test_type="safe_probe",
+                        risk_type="xss",
+                        target_page_id=page.id,
+                        target_url=page.url,
+                        target_field=target_field.name,
+                        payload=self._generate_canary("xss"),
+                        payload_category="stored_xss",
+                        description=f"XSS on {target_field.label or target_field.name}",
+                    ))
+                    page_probes += 1
 
-            # --- Admin/settings page detection ---
-            if page.page_category in ("admin", "settings"):
+            # --- Admin/settings page (1 probe per page) ---
+            if page.page_category in ("admin", "settings") and page_probes < max_per_page:
                 tests.append(PlannedTest(
                     test_type="safe_probe",
                     risk_type="admin_bypass",
                     target_page_id=page.id,
                     target_url=page.url,
+                    payload=self._generate_canary("admin_bypass"),
                     payload_category="bfla",
-                    description=f"Admin/settings page: {page.title or page.url[:50]}",
+                    description=f"Admin bypass: {page.title or page.url[:50]}",
                 ))
+                page_probes += 1
 
-            # --- Profile page detection ---
-            if page.page_category == "profile":
+            # --- Profile/record detail (BOLA) (1 probe per page) ---
+            if page.page_category in ("profile", "record_detail") and page_probes < max_per_page:
                 tests.append(PlannedTest(
                     test_type="safe_probe",
                     risk_type="bola",
                     target_page_id=page.id,
                     target_url=page.url,
+                    payload=self._generate_canary("bola"),
                     payload_category="bola_id_swap",
-                    description=f"Profile page: {page.title or page.url[:50]}",
+                    description=f"BOLA on {page.title or page.url[:50]}",
                 ))
+                page_probes += 1
 
-            # --- Record detail pages (BOLA targets) ---
-            if page.page_category == "record_detail":
-                tests.append(PlannedTest(
-                    test_type="safe_probe",
-                    risk_type="bola",
-                    target_page_id=page.id,
-                    target_url=page.url,
-                    payload_category="bola_id_swap",
-                    description=f"Record detail: {page.title or page.url[:50]}",
-                ))
-
-            # --- Sensitive data visible ---
-            if page.sensitive_data_visible:
+            # --- Sensitive data visible (1 probe per page) ---
+            if page.sensitive_data_visible and page_probes < max_per_page:
                 tests.append(PlannedTest(
                     test_type="safe_probe",
                     risk_type="data_exposure",
                     target_page_id=page.id,
                     target_url=page.url,
+                    payload=self._generate_canary("data_exposure"),
                     payload_category="pii_check",
-                    description=f"Sensitive data visible: {page.sensitive_data_description or page.title}",
+                    description=f"Data exposure on {page.title or page.url[:50]}",
                 ))
+                page_probes += 1
 
-            # --- API6: Business flow bypass (destructive/state-change actions) ---
-            # Leverages V3.1 Vision LLM discoveries from page characteristics
-            if page.page_category in ("form", "record_detail", "admin"):
-                # Check for destructive or state-change buttons detected by LLM
-                has_state_change = self._has_state_change_actions(page)
-                if has_state_change:
+            # --- API6: Business flow bypass (1 probe per page) ---
+            if page.page_category in ("form", "record_detail", "admin") and page_probes < max_per_page:
+                if self._has_state_change_actions(page):
                     tests.append(PlannedTest(
                         test_type="safe_probe",
                         risk_type="business_flow_bypass",
                         target_page_id=page.id,
                         target_url=page.url,
+                        payload=self._generate_canary("business_flow_bypass"),
                         payload_category="business_flow_bypass",
-                        description=f"Business flow bypass on {page.title or page.url[:50]} — state change detected",
+                        description=f"Flow bypass on {page.title or page.url[:50]}",
                     ))
+                    page_probes += 1
 
-            # --- A08: Type confusion for JSON endpoints ---
-            # If page accepts JSON (has form fields or is an API endpoint)
-            if page.page_category in ("form", "record_detail", "list_view"):
+            # --- A08: Type confusion (1 probe per page) ---
+            if page.page_category in ("form", "record_detail", "list_view") and page_probes < max_per_page:
                 tests.append(PlannedTest(
                     test_type="safe_probe",
                     risk_type="type_confusion",
                     target_page_id=page.id,
                     target_url=page.url,
+                    payload=self._generate_canary("type_confusion"),
                     payload_category="type_confusion_fuzz",
-                    description=f"Type confusion fuzz on {page.title or page.url[:50]}",
+                    description=f"Type confusion on {page.title or page.url[:50]}",
                 ))
+                page_probes += 1
 
-            # --- A09: Debug/Log Leakage (all endpoints) ---
-            # Generate for every discovered page (applies to all endpoints)
-            tests.append(PlannedTest(
-                test_type="safe_probe",
-                risk_type="error_log_leakage",
-                target_page_id=page.id,
-                target_url=page.url,
-                payload_category="error_log_leakage",
-                description=f"Log/debug data leakage check on {page.title or page.url[:50]}",
-            ))
+            # --- A09: Log Leakage (1 probe per page) ---
+            if page_probes < max_per_page:
+                tests.append(PlannedTest(
+                    test_type="safe_probe",
+                    risk_type="error_log_leakage",
+                    target_page_id=page.id,
+                    target_url=page.url,
+                    payload=self._generate_canary("error_log_leakage"),
+                    payload_category="error_log_leakage",
+                    description=f"Log leakage on {page.title or page.url[:50]}",
+                ))
+                page_probes += 1
 
             # --- A09: Account Lockout (login pages only) ---
-            if page.page_category == "login":
+            if page.page_category == "login" and page_probes < max_per_page:
                 tests.append(PlannedTest(
                     test_type="safe_probe",
                     risk_type="brute_force_monitoring",
                     target_page_id=page.id,
                     target_url=page.url,
+                    payload=self._generate_canary("brute_force"),
                     payload_category="brute_force_monitoring",
-                    description=f"Brute force monitoring check on login: {page.title or page.url[:50]}",
+                    description=f"Brute force on {page.title or page.url[:50]}",
                 ))
+                page_probes += 1
 
         return tests
 

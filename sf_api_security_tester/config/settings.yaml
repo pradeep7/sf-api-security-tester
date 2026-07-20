@@ -211,8 +211,9 @@ discovery:
 
 safe_execution:
   enabled: true # Set false to skip safe probe execution
-  probe_prefix: "SF_PROBE_" # Prefix for all safe probe strings
-  max_tests_per_page: 10 # Max safe tests per discovered page
+  probe_prefix: "SF_CANARY_" # V3.2: Canary prefix for all safe probes
+  max_probes_per_page: 5 # V3.2: Strict limit per page
+  max_total_probes_per_run: 500 # V3.2: Hard ceiling to prevent WAF bans
   screenshot_after_each_test: true # Capture screenshot after each probe
 
 role_comparison:
@@ -229,7 +230,7 @@ role_comparison:
 # Routes all HTTP traffic through a proxy for inspection and logging.
 upstream_proxy:
   enabled: false # Set true to route through proxy
-  url: "http://127.0.0.1:8080" # Default Caido/Burp/ZAP port
+  url: "http://127.0.0.1:9090" # Default Caido/Burp/ZAP port
   proxy_type: "http" # http | socks5
 
 # ---------------------------------------------------------------------------

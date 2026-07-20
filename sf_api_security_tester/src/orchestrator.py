@@ -539,6 +539,28 @@ class Orchestrator:
 
         # Generate test plan
         self.test_plan = self.test_planner.plan(self.feature_inventory, self.site_map)
+
+        # V3.2: Enforce max total probes cap
+        max_probes = self.config.get("safe_execution", {}).get("max_total_probes_per_run", 500)
+        if self.test_plan.total_probes > max_probes:
+            # Truncate to top N probes by severity
+            sorted_tests = sorted(
+                self.test_plan.planned_tests,
+                key=lambda t: (
+                    0 if t.test_type == "safe_probe" else 1,
+                    next((i for i, s in enumerate(["Critical", "High", "Medium", "Low"]) if s in t.description), 99),
+                ),
+            )
+            self.test_plan.planned_tests = sorted_tests[:max_probes]
+            self.test_plan.total_probes = min(self.test_plan.total_probes, max_probes)
+            logger.warning(
+                f"Probe plan exceeded safe limits ({max_probes}). "
+                f"Truncated to top {max_probes} highest-risk probes to prevent WAF bans."
+            )
+            console.print(
+                f"  [yellow]Truncated to {max_probes} probes (WAF safety limit)[/yellow]"
+            )
+
         console.print(
             f"  [green]Test plan: {self.test_plan.total_probes} safe probes "
             f"ready[/green]"
