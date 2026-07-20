@@ -1,12 +1,12 @@
-# Salesforce API Security Tester — Architecture & Developer Guide (V3.0)
+# Salesforce API Security Tester — Architecture & Developer Guide (V3.1)
 
-Welcome to the **Salesforce API Security Tester V3.0: The Autonomous AI Security Agent**. This guide is designed for security engineers, developers, and maintainers to deeply understand the framework's architecture, core components, and data flow.
+Welcome to the **Salesforce API Security Tester V3.1: The Autonomous AI Security Agent**. This guide is designed for security engineers, developers, and maintainers to deeply understand the framework's architecture, core components, and data flow.
 
 ---
 
 ## 1. High-Level Architecture Overview
 
-This framework is an **autonomous, context-aware AI security agent** specifically tailored for Salesforce portals (Assist/Tenant portals, Communities, etc.). Unlike traditional scanners that passively replay recorded traffic, V3.0 **actively explores the live application** like a human would — clicking every link, understanding every page, mapping every role — and *then* tests intelligently.
+This framework is an **autonomous, context-aware AI security agent** specifically tailored for Salesforce portals (Assist/Tenant portals, Communities, etc.). Unlike traditional scanners that passively replay recorded traffic, V3.1 **actively explores the live application** like a human would — clicking every link, understanding every page, mapping every role — and *then* tests intelligently.
 
 It operates as a **7-phase pipeline**: it autonomously discovers the application surface, builds a feature inventory, executes safe probes to identify reflection points, fires real attack mutations, uses a **Hybrid AI Engine** (Text LLMs and Vision LLMs) to verify findings and eliminate false positives, and generates comprehensive reports with visual evidence.
 
@@ -17,11 +17,11 @@ The entire flow is managed by `src/orchestrator.py`. The execution lifecycle fol
 | Phase | Name | Module(s) | Purpose |
 |-------|------|-----------|---------|
 | **-1** | HAR Generation | `har_generator.py` | Records live browser traffic as HAR via Playwright native recording (with proxy support) |
-| **0** | Autonomous Explore | `autonomous_explorer.py` | Playwright BFS discovers every page; Vision LLM understands context |
+| **0** | Autonomous Explore | `autonomous_explorer.py` | Playwright BFS discovers every page; Vision LLM understands context; Smart SSO/MFA fallback |
 | **0.5** | Feature Inventory & Safe Probing | `feature_inventory.py`, `test_planner.py`, `safe_executor.py`, `dom_xss_auditor.py` | Maps risk surfaces; executes harmless probes to verify reflection |
-| **1** | HAR Parse (Enriched) | `har_parser.py` | Parses browser traffic; enriched with Phase 0 discoveries |
+| **1** | HAR Parse + Smart Analysis | `har_parser.py`, `har_analyzer.py` | Parses browser traffic; LLM-powered deep API intelligence analysis |
 | **2** | Classify & Plan | `endpoint_classifier.py`, `test_case_engine.py` | Categorizes endpoints; maps OWASP rules to attack surfaces |
-| **3** | Execute Mutations | `mutation_engine.py`, `executor.py` | Sends real attack payloads with WAF evasion |
+| **3** | Execute Mutations | `mutation_engine.py`, `executor.py` | Sends real attack payloads with WAF evasion and telemetry headers |
 | **4** | LLM Triage | `llm_verifier.py` | Text LLM confirms/rejects `POTENTIAL_FINDING` verdicts |
 | **5** | Visual DAST | `visual_auditor.py` | Vision LLM analyzes screenshots for DOM XSS and data exposure |
 | **6** | Report Generation | `report_generator.py` | HTML/JSON report with Feature Inventory, Visual Evidence, OWASP matrix |
@@ -47,6 +47,57 @@ Here is how the framework handles vulnerabilities without requiring custom Pytho
 6. **The AI Senior Engineer (Phase 4 — LLMVerifier)**: To eliminate false positives, the AI brain reviews the `POTENTIAL_FINDING`. It acts as a senior engineer, analyzing the raw HTTP evidence to confirm if the vulnerability is a true exploit or a normal server error. Salesforce-specific context (OWD, Sharing Rules) prevents hallucinated BOLA findings.
 
 7. **The Visual Auditor (Phase 5 — VisualAuditor)**: Uses Vision LLMs to analyze Playwright screenshots, confirming whether XSS payloads actually rendered in the DOM or if PII is visually exposed in the UI.
+
+
+## 1.6 Attack Surface Synthesis & Traceability
+
+The framework's true power lies in how it synthesizes multiple discovery methods into a single, unified attack surface, and how every finding is 100% traceable back to its origin.
+
+### Three Paths to Endpoint Discovery
+The framework supports three distinct ways to discover the target's attack surface, all of which merge into the same execution pipeline:
+
+| Path | Method | Output | Best Use Case |
+|------|--------|--------|---------------|
+| **Path 1: Autonomous Explorer** (Phase 0) | Playwright BFS crawl + Vision LLM analysis | `SiteMap` (pages, forms, inputs, risk types, LLM context) | Greenfield testing, discovering hidden UI features and complex SSO flows. |
+| **Path 2: Manual HAR** (Phase 1) | User browses manually → Exports `.har` from browser | `APIEndpoint` list (URLs, methods, bodies, headers, SF IDs) | Targeted testing of specific, known workflows or complex multi-step transactions. |
+| **Path 3: Live HAR Recording** (Phase -1) | `python main.py --generate-har --target <url> --manual-auth` | Same as Path 2, but auto-captured and proxy-routed | Quick, repeatable traffic capture without manual browser dev-tools export. |
+
+**The Key Insight:** Path 1 discovers *WHAT* the app does (pages, forms, features). Paths 2 & 3 discover *HOW* it communicates (API calls, tokens, request bodies). Together, they provide a complete, 360-degree view of the attack surface.
+
+### Weaponizing Recon for OWASP-Aligned Testing
+The `test_planner.py` does not guess; it generates smarter, OWASP-aligned tests based *exactly* on what the recon phase discovered:
+
+| Recon Discovery | Test Generated | OWASP Category |
+|-----------------|----------------|----------------|
+| File upload input | `path_traversal` probe on upload field | A04: Insecure Design |
+| Comment / Rich-text field | `stored_xss` probe on textarea | A03: Injection |
+| Admin / Settings page | `bfla` probe (privilege escalation) | API3: Broken Function Level Auth |
+| Profile / User page | `bola` probe (swap user IDs) | API1: Broken Object Level Auth |
+| Record detail page | `bola` probe (swap record IDs) | API1: Broken Object Level Auth |
+| Sensitive data visible | `pii_check` (verify data exposure) | A02: Cryptographic Failures |
+| Search / Filter input | `soql_injection` probe | A03: Injection |
+| URL-accepting field | `ssrf` probe | API7: SSRF |
+| Delete / Archive button | `admin_bypass` probe | API3: BFLA |
+
+### The Traceability Flow
+Every single test is mathematically traceable from discovery to the final report:
+
+```text
+1. Recon: Finds "Search" input on "Contact List" page
+   ↓
+2. Context Router: Identifies "This is a SOQL query field"  
+   ↓
+3. Test Planner: Generates "SOQL injection probe" strategy
+   ↓
+4. Mutation Engine: Fetches dynamic SQLi payloads from PayloadManager
+   ↓
+5. Executor: Sends `SF_SQLI_PROBE_xxx` with `X-SecTest-OWASP: A03` header
+   ↓
+6. Evaluator: Checks if probe reflected in DOM (Local Detective)
+   ↓
+7. Visual Auditor: Verifies with Vision LLM screenshot analysis
+   ↓
+8. Report: Generates finding mapped to "API1 BOLA + A03 SQLi on Contact List search"
 
 ---
 
@@ -82,10 +133,19 @@ Phase -1: Captures live browser traffic as HAR files using Playwright's native r
 
 The "Eyes" of the system. This module uses Playwright to drive a real browser through the Salesforce Lightning portal.
 
+**Smart Recon Flow (V3.1):**
+1. Try automated login with provided credentials
+2. If SSO/MFA detected → open separate headed browser for manual login
+3. After manual login → extract cookies, inject into main context, verify
+4. If manual login fails → explore as guest
+5. BFS-crawl every page/tab, respecting domain scope
+
 **Login Flow:**
 - Reads credentials from `config/credentials.yaml`
-- Handles Salesforce-specific login: waits for `#username`/`#password` fields, clicks `#Login`, handles "Remember this browser" prompt
-- Detects MFA/2FA, pauses with a console message asking the user to complete manually, waits for post-login selectors
+- `_smart_login()`: tries automated login with SF-specific selectors (`#username`, `#password`, `#Login`)
+- Handles "Remember this browser" prompt automatically
+- Detects MFA/2FA → opens separate headed browser, pauses for user, extracts cookies
+- `_manual_login()`: opens visible browser for SSO/JIT/MFA, waits for ENTER, extracts cookies via `context.cookies()`, injects into main session
 - Verifies login success by checking URL doesn't contain `/login`
 
 **BFS Navigation:**
@@ -93,15 +153,43 @@ The "Eyes" of the system. This module uses Playwright to drive a real browser th
 - At each page: extracts DOM summary, visible text, all `<input>`/`<select>`/`<textarea>` fields
 - Handles Salesforce Lightning SPA navigation using `page.wait_for_selector('.oneAppLauncher, .slds-page-header')`
 - Limits to `max_pages` (default 100) and `max_depth` (default 5)
+- Scope check: prevents following external links out of domain
+
+**V3.1 Enhanced Data Capture (per page):**
+- **Response headers**: Status codes from performance API
+- **Network interception**: Captures XHR/Fetch requests via `page.on('request')`
+- **localStorage/sessionStorage**: Extracts cached tokens and settings
+- **iframe content**: Detects embedded Salesforce components
+- **SF metadata**: Object types, record IDs, Aura components, field names from DOM
+- **Page characteristics**: File uploads, comment boxes, rich text editors, delete/save buttons, admin/profile indicators, PII detection
 
 **Vision LLM Page Understanding:**
-- Sends each page screenshot + DOM summary to a Vision LLM
-- LLM returns strict JSON: `page_purpose`, `page_category`, `features`, `input_fields` (with `risk_type`), `navigation_targets`, `sensitive_data_visible`, `role_indicators`, `api_endpoints_inferred`, `confidence`
+- Sends each page screenshot + enhanced DOM summary to a Vision LLM
+- LLM returns strict JSON with 16 fields: `page_purpose`, `page_category`, `features`, `input_fields`, `navigation_targets`, `sensitive_data_visible`, `sensitive_data_description`, `role_indicators`, `api_endpoints_inferred`, `file_upload_detected`, `comment_or_state_change_detected`, `admin_or_settings_page`, `profile_page`, `destructive_actions`, `state_change_actions`, `confidence`
 - Robust 3-tier JSON parsing: strip markdown → extract `{...}` → fallback to `INCONCLUSIVE`
 
-**Output:** A complete `SiteMap` object with all `PageSnapshot`s and a structured `audit_log`.
+**Output:** A complete `SiteMap` object with all `PageSnapshot`s, enhanced DOM summaries, and a structured `audit_log`.
 
-### 2.3 Feature Inventory & Test Planning (`src/feature_inventory.py`, `src/test_planner.py`)
+### 2.4 Smart HAR Analyzer (`src/har_analyzer.py`)
+
+LLM-powered deep inspection of HAR traffic that goes beyond regex parsing.
+
+**How it works:**
+1. `har_parser.py` extracts raw endpoints (URLs, methods, bodies, SF IDs) — fast, zero-cost
+2. `har_analyzer.py` sends a concise endpoint summary to the LLM and asks it to determine:
+   - **Purpose** of each endpoint (what business function it serves)
+   - **Auth mechanism** (Bearer, Session, Cookie, SAML)
+   - **Sensitive data** exposure (PII, credentials, internal IDs)
+   - **Risk level** (low/medium/high/critical)
+   - **Attack surface** (which OWASP categories apply)
+   - **Business logic** (observable rules like "requires AccountId", "filters by OwnerId")
+3. LLM returns a structured JSON intelligence report with:
+   - Per-endpoint analysis
+   - Overall assessment: `app_type`, `auth_pattern`, `data_classification`, `attack_priority`
+
+**Token economy:** Endpoints are chunked (50 per LLM call). Results are cached via MD5 hash. If LLM is disabled, returns a heuristic analysis (no tokens spent).
+
+### 2.5 Feature Inventory & Test Planning (`src/feature_inventory.py`, `src/test_planner.py`)
 
 **FeatureInventoryBuilder** aggregates the SiteMap into:
 - `pages_by_category`: Pages grouped by LLM-assigned category
@@ -121,7 +209,7 @@ The "Eyes" of the system. This module uses Playwright to drive a real browser th
 - `to_markdown()`: Generates a human-readable Markdown feature document
 - `to_json()`: Machine-readable JSON via Pydantic's `model_dump_json()`
 
-### 2.4 Triple-Verified DOM XSS Auditor (`src/dom_xss_auditor.py`)
+### 2.6 Triple-Verified DOM XSS Auditor (`src/dom_xss_auditor.py`)
 
 The most innovative module — tests for DOM-based XSS using **zero-token local checks** before involving the LLM.
 
@@ -145,7 +233,7 @@ SAFE_DOM_PROBES = [
 
 **Cost Control:** Limits total screenshots per scan (`max_screenshots_per_run: 50`). Prioritizes pages with input fields over static pages.
 
-### 2.5 Safe Executor (`src/safe_executor.py`)
+### 2.7 Safe Executor (`src/safe_executor.py`)
 
 Executes the safe probes from the TestPlan using Playwright.
 
@@ -161,23 +249,23 @@ Executes the safe probes from the TestPlan using Playwright.
 - Always uses test/sandbox credentials
 - Every action is logged to the `AuditEvent` audit trail
 
-### 2.6 Payload Generation & Mutation
+### 2.8 Payload Generation & Mutation
 
 - **`src/mutation_engine.py`**: The core factory that dynamically manipulates HTTP requests. Knows how to inject payloads into headers, query strings, JSON bodies, or perform HTTP method overrides. Uses `PayloadManager` for dynamic payload fetching and `ContextRouter` for Salesforce-aware injection.
 - **`src/payload_manager.py`**: Manages the retrieval and caching of dynamic payloads from external sources (SecLists, PayloadsAllTheThings). Checks file modification time; only re-fetches if older than 7 days.
 - **`src/context_router.py`**: Analyses endpoints using regex/heuristics to determine the injection type (SOQL, XSS, SSRF, BOLA) and the exact injection points (URL params, body fields, headers).
 
-### 2.7 Network Execution & WAF Evasion
+### 2.9 Network Execution & WAF Evasion
 
 - **`src/executor.py`**: The network layer handling outbound HTTP requests via `EvasionClient`.
 - **`src/waf_evasion.py`**: Integrates with the executor. Detects WAF blocks (HTTP 403/429, signature matching for Cloudflare/Akamai/AWS WAF), applies exponential backoff, rotates User-Agents, and detects Salesforce API limits (`REQUEST_LIMIT_EXCEEDED`) to halt execution before org lockout.
 
-### 2.8 Evidence & Proof
+### 2.10 Evidence & Proof
 
 - **`src/evidence_collector.py`**: Saves raw request and response dumps to disk. Truncates response bodies to 50KB and request bodies to 10KB to prevent evidence bloat. Appends `[TRUNCATED BY FRAMEWORK]` markers.
 - **`src/screenshot_capture.py`**: Uses Playwright to capture screenshots and extract DOM `outerHTML` around injection points for Visual DAST analysis.
 
-### 2.9 Hybrid AI Verification Layer
+### 2.11 Hybrid AI Verification Layer
 
 **Text LLM Triage (`src/llm_verifier.py`):**
 - Takes the `POTENTIAL_FINDING` queue (only anomalies, never passed tests)
@@ -192,7 +280,7 @@ Executes the safe probes from the TestPlan using Playwright.
 - Verdicts: `CONFIRMED_XSS`, `REFLECTED_NOT_EXECUTED`, `DATA_EXPOSURE`, `INCONCLUSIVE`, `CLEAN`
 - Robust 3-tier JSON parsing and MD5 prompt caching
 
-### 2.10 Multi-Role Comparison (`src/role_manager.py`)
+### 2.12 Multi-Role Comparison (`src/role_manager.py`)
 
 Enables privilege escalation detection by comparing what different user roles can see.
 
@@ -202,7 +290,7 @@ Enables privilege escalation detection by comparing what different user roles ca
 - **`_verify_role()`**: Checks the Salesforce user profile page for role indicators (System Administrator, Standard User, etc.)
 - **Role diff**: Mathematical set comparison of discovered pages — identifies pages only visible to Admin but not Standard User
 
-### 2.11 The Audit Trail
+### 2.13 The Audit Trail
 
 Every action is timestamped and logged via the `AuditEvent` dataclass:
 - `timestamp`: When the event occurred

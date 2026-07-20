@@ -24,6 +24,7 @@ from .auth_handoff import AuthHandoff
 from .autonomous_explorer import AutonomousExplorer
 from .dom_xss_auditor import DOMXSSAuditor
 from .endpoint_classifier import EndpointClassifier
+from .har_analyzer import HarAnalyzer
 from .har_generator import HarGenerator
 from .evidence_collector import EvidenceCollector
 from .executor import RequestExecutor
@@ -53,6 +54,7 @@ from .screenshot_capture import ScreenshotCapture
 from .test_case_engine import TestCaseEngine
 from .test_planner import SmartTestPlanner
 from .visual_auditor import VisualAuditor
+from .workflow_mapper import WorkflowMapper
 
 console = Console()
 
@@ -68,6 +70,7 @@ class Orchestrator:
         skip_explore: bool = False,
         role_compare: bool = False,
         manual_auth: bool = False,
+        target_url: str | None = None,
     ):
         self.config_path = Path(config_path)
         self.config: dict[str, Any] = {}
@@ -77,6 +80,7 @@ class Orchestrator:
         self.skip_explore = skip_explore
         self.role_compare = role_compare
         self.manual_auth = manual_auth
+        self.target_url = target_url
 
         # V2.x Components
         self.classifier: EndpointClassifier | None = None
@@ -99,6 +103,9 @@ class Orchestrator:
         self.role_manager: RoleManager | None = None
         self.auth_handoff: AuthHandoff | None = None
         self.har_generator: HarGenerator | None = None
+        self.har_analyzer: HarAnalyzer | None = None
+        self.har_intelligence: dict[str, Any] | None = None
+        self.workflow_mapper: WorkflowMapper | None = None
         self.harvested_cookies: dict[str, str] = {}
 
         # V3.0 State
@@ -205,6 +212,9 @@ class Orchestrator:
         # Visual Auditor (V2.3 — reviews screenshots via Vision LLM)
         self.visual_auditor = VisualAuditor(self.config)
 
+        # V3.1: Workflow Mapper (API6 state machine detection)
+        self.workflow_mapper = WorkflowMapper(self.config)
+
         # V3.0: Autonomous Reconnaissance
         self.autonomous_explorer = AutonomousExplorer(self.config)
         self.feature_inventory_builder = FeatureInventoryBuilder()
@@ -215,16 +225,19 @@ class Orchestrator:
         self.auth_handoff = AuthHandoff(self.config)
         self.auth_handoff.enabled = self.manual_auth
         self.har_generator = HarGenerator(self.config)
+        self.har_analyzer = HarAnalyzer(self.config)
 
     def run(self) -> TestReport:
         """Execute the full V3.0 security testing pipeline."""
         self.scan_start = datetime.utcnow()
 
         mode_label = "Explore-Only" if self.explore_only else "Full V3.0"
+        target_info = f"\n[dim]Target: {self.target_url}[/dim]" if self.target_url else ""
         console.print(Panel.fit(
             "[bold cyan]SF API Security Tester V3.0[/bold cyan]\n"
             f"[dim]Project: {self.config.get('general', {}).get('project_name', 'Unknown')}[/dim]\n"
-            f"[dim]Mode: {mode_label}[/dim]\n"
+            f"[dim]Mode: {mode_label}[/dim]"
+            f"{target_info}\n"
             f"[dim]Dry Run: {self.config.get('general', {}).get('dry_run', False)}[/dim]",
             border_style="blue",
         ))
@@ -367,35 +380,49 @@ class Orchestrator:
     # ------------------------------------------------------------------
     def _phase_0_explore(self):
         """Autonomously explore the Salesforce portal using Playwright + Vision LLM."""
-        portals_config = self.config.get("portals", {})
+        # If --target is provided, explore that URL directly
+        if self.target_url:
+            console.print(f"  [blue]Exploring target: {self.target_url}[/blue]")
+            portal_creds = self.credentials.get("portals", {})
+            # Try to find matching credentials
+            creds = {}
+            for portal_key in portal_creds:
+                if isinstance(portal_creds[portal_key], dict):
+                    creds = portal_creds[portal_key]
+                    break
 
-        # Explore each configured portal
-        for portal_key, portal_cfg in portals_config.items():
-            portal_url = portal_cfg.get("base_url", "")
-            if not portal_url:
-                continue
+            site_map = self.autonomous_explorer.explore(self.target_url, creds)
+            self.site_map = site_map
+        else:
+            # Explore each configured portal from settings
+            portals_config = self.config.get("portals", {})
 
-            console.print(f"  [blue]Exploring {portal_cfg.get('name', portal_key)}: {portal_url}[/blue]")
+            for portal_key, portal_cfg in portals_config.items():
+                portal_url = portal_cfg.get("base_url", "")
+                if not portal_url:
+                    continue
 
-            # Get credentials for this portal
-            portal_creds = self.credentials.get("portals", {}).get(portal_key, {})
+                console.print(f"  [blue]Exploring {portal_cfg.get('name', portal_key)}: {portal_url}[/blue]")
 
-            site_map = self.autonomous_explorer.explore(portal_url, portal_creds)
+                # Get credentials for this portal
+                portal_creds = self.credentials.get("portals", {}).get(portal_key, {})
 
-            if self.site_map is None:
-                self.site_map = site_map
-            else:
-                # Merge site maps
-                self.site_map.pages.extend(site_map.pages)
-                self.site_map.total_pages = len(self.site_map.pages)
-                self.site_map.total_input_fields += site_map.total_input_fields
-                for cat, count in site_map.categories.items():
-                    self.site_map.categories[cat] = self.site_map.categories.get(cat, 0) + count
-                self.site_map.sensitive_pages.extend(site_map.sensitive_pages)
+                site_map = self.autonomous_explorer.explore(portal_url, portal_creds)
+
+                if self.site_map is None:
+                    self.site_map = site_map
+                else:
+                    # Merge site maps
+                    self.site_map.pages.extend(site_map.pages)
+                    self.site_map.total_pages = len(self.site_map.pages)
+                    self.site_map.total_input_fields += site_map.total_input_fields
+                    for cat, count in site_map.categories.items():
+                        self.site_map.categories[cat] = self.site_map.categories.get(cat, 0) + count
+                    self.site_map.sensitive_pages.extend(site_map.sensitive_pages)
 
         # Role comparison: explore with multiple roles and diff
         if self.role_compare:
-            self._run_role_comparison(portals_config)
+            self._run_role_comparison(self.config.get("portals", {}))
 
         if self.site_map:
             console.print(
@@ -498,6 +525,17 @@ class Orchestrator:
             f"  [green]Feature inventory: {self.feature_inventory.total_risks} "
             f"risk surfaces identified[/green]"
         )
+
+        # Detect multi-step workflows (API6)
+        if self.workflow_mapper:
+            console.print("  [blue]Mapping business workflows...[/blue]")
+            workflows = self.workflow_mapper.detect_workflows(self.site_map)
+            self.feature_inventory.workflows = workflows
+            if workflows:
+                console.print(
+                    f"  [green]Detected {len(workflows)} business workflows "
+                    f"for API6 testing[/green]"
+                )
 
         # Generate test plan
         self.test_plan = self.test_planner.plan(self.feature_inventory, self.site_map)
@@ -614,7 +652,7 @@ class Orchestrator:
             console.print("  [red]HAR generation failed[/red]")
 
     def _parse_har_files(self):
-        """Parse HAR files and extract endpoints."""
+        """Parse HAR files and extract endpoints, then run LLM analysis."""
         if not self.har_files:
             logger.warning("No HAR files specified")
             # Try to find HAR files in input/ directory
@@ -641,6 +679,19 @@ class Orchestrator:
         )
 
         console.print(f"  [green]Found {len(self.endpoints)} API endpoints[/green]")
+
+        # Smart HAR Analysis (LLM-powered deep inspection)
+        if self.endpoints and self.har_analyzer and self.har_analyzer.enabled:
+            console.print("  [cyan]Running deep HAR analysis with LLM...[/cyan]")
+            self.har_intelligence = self.har_analyzer.analyse_endpoints(self.endpoints)
+            if self.har_intelligence:
+                overall = self.har_intelligence.get("overall", {})
+                console.print(f"  [green]App type: {overall.get('app_type', 'unknown')}[/green]")
+                console.print(f"  [green]Auth pattern: {overall.get('auth_pattern', 'unknown')}[/green]")
+                console.print(f"  [green]Data classification: {overall.get('data_classification', 'unknown')}[/green]")
+                attack_priority = overall.get("attack_priority", [])
+                if attack_priority:
+                    console.print(f"  [yellow]Attack priority: {len(attack_priority)} endpoints[/yellow]")
 
     def _classify_endpoints(self):
         """Classify endpoints by risk category."""

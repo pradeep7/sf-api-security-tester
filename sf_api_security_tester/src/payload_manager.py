@@ -203,7 +203,11 @@ class PayloadManager:
         return []
 
     def _fetch_from_sources(self, urls: list[str]) -> list[str]:
-        """Fetch payload lines from a list of URLs. Returns raw merged lines."""
+        """Fetch payload lines from a list of URLs. Returns raw merged lines.
+
+        Handles both .txt files (plain payload lists) and .md files
+        (extracts payloads from markdown tables and code blocks).
+        """
         all_lines: list[str] = []
         for url in urls:
             try:
@@ -212,9 +216,15 @@ class PayloadManager:
                 })
                 if resp.status_code == 200:
                     text = resp.text
-                    lines = [line.strip() for line in text.splitlines() if line.strip()]
-                    all_lines.extend(lines)
-                    logger.debug(f"Fetched {len(lines)} lines from {url[:80]}")
+                    # Detect if content is markdown
+                    if url.endswith(".md") or self._looks_like_markdown(text):
+                        payloads = self._extract_from_markdown(text)
+                        all_lines.extend(payloads)
+                        logger.debug(f"Extracted {len(payloads)} payloads from markdown: {url[:80]}")
+                    else:
+                        lines = [line.strip() for line in text.splitlines() if line.strip()]
+                        all_lines.extend(lines)
+                        logger.debug(f"Fetched {len(lines)} lines from {url[:80]}")
                 else:
                     logger.warning(f"HTTP {resp.status_code} from {url[:80]}")
             except requests.Timeout:
@@ -225,6 +235,62 @@ class PayloadManager:
                 logger.error(f"Unexpected error fetching {url[:80]}: {e}")
 
         return all_lines
+
+    @staticmethod
+    def _looks_like_markdown(text: str) -> bool:
+        """Detect if content is markdown (has headers, tables, or code blocks)."""
+        indicators = ["## ", "```", "| ", "---|"]
+        return sum(1 for ind in indicators if ind in text) >= 2
+
+    @staticmethod
+    def _extract_from_markdown(text: str) -> list[str]:
+        """Extract payloads from markdown content.
+
+        Extracts from:
+        1. Markdown tables (| payload | ...)
+        2. Code blocks (``` ... ```)
+        3. Inline code (`payload`)
+        4. Lines that look like payloads (contain special chars)
+        """
+        payloads: list[str] = []
+        in_code_block = False
+
+        for line in text.splitlines():
+            stripped = line.strip()
+
+            # Skip markdown headers and empty lines
+            if not stripped or stripped.startswith("#") or stripped.startswith(">"):
+                continue
+
+            # Track code blocks
+            if stripped.startswith("```"):
+                in_code_block = not in_code_block
+                continue
+
+            if in_code_block:
+                # Inside code block — keep if it looks like a payload
+                if stripped and not stripped.startswith("//") and not stripped.startswith("#"):
+                    payloads.append(stripped)
+                continue
+
+            # Extract from markdown tables
+            if stripped.startswith("|") and "|" in stripped[1:]:
+                cells = [c.strip() for c in stripped.split("|")[1:-1]]
+                for cell in cells:
+                    # Skip table headers and separators
+                    if cell and not cell.startswith("---") and cell not in ("Payload", "Description", "Name", "Type"):
+                        # Remove markdown formatting
+                        clean = cell.strip("`").strip("*").strip()
+                        if clean and len(clean) > 1:
+                            payloads.append(clean)
+
+            # Extract inline code that looks like a payload
+            inline_codes = re.findall(r"`([^`]+)`", stripped)
+            for code in inline_codes:
+                if len(code) > 1 and not code.startswith("http"):
+                    payloads.append(code.strip())
+
+        return payloads
 
     # ------------------------------------------------------------------
     # Cleaning & deduplication

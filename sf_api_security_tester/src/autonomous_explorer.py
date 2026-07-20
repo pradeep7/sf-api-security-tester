@@ -26,12 +26,13 @@ from .models import AuditEvent, InputFieldInfo, PageSnapshot, SiteMap
 # Vision LLM prompt for page analysis
 # ---------------------------------------------------------------------------
 _PAGE_ANALYSIS_PROMPT = """\
-You are analysing a screenshot and DOM snippet of a Salesforce Lightning page. \
-Return a JSON object describing the page:
+You are an expert Salesforce Security Reconnaissance Analyst. \
+Analyse this screenshot and DOM snippet of a Salesforce Lightning page. \
+Return a JSON object describing the page and its security-relevant characteristics:
 
 {
   "page_purpose": "<1-sentence description of what this page does>",
-  "page_category": "dashboard|list_view|record_detail|form|settings|admin|login|other",
+  "page_category": "dashboard|list_view|record_detail|form|settings|admin|profile|file_upload|login|other",
   "features": ["list of functional capabilities on this page"],
   "input_fields": [
     {"name": "<field name or id>", "type": "text|select|file|richtext|search|textarea|checkbox|radio", "label": "<visible label>", "risk_type": "xss|sqli|ssrf|none"}
@@ -41,6 +42,12 @@ Return a JSON object describing the page:
   "sensitive_data_description": "<what sensitive data is visible if any>",
   "role_indicators": "<describe any role/admin/user indicators visible>",
   "api_endpoints_inferred": ["any API calls you can infer from the page behavior"],
+  "file_upload_detected": <true/false>,
+  "comment_or_state_change_detected": <true/false>,
+  "admin_or_settings_page": <true/false>,
+  "profile_page": <true/false>,
+  "destructive_actions": ["list of delete/archive/remove buttons visible"],
+  "state_change_actions": ["list of save/submit/update buttons visible"],
   "confidence": <float 0.0-1.0, how confident you are in this analysis>
 }
 
@@ -52,6 +59,12 @@ ssrf if it accepts URLs, none otherwise.
 - features: list key capabilities (e.g. "Search contacts", "Create case", "Export data").
 - navigation_targets: list visible navigation elements (e.g. "Tab: Cases", "Button: New Case").
 - api_endpoints_inferred: infer from UI (e.g. "/services/data/v58.0/sobjects/Account").
+- file_upload_detected: true if any file input or upload button is visible.
+- comment_or_state_change_detected: true if any textarea, rich text editor, or comment box exists.
+- admin_or_settings_page: true if this is an admin, setup, or configuration page.
+- profile_page: true if this is a user profile or account settings page.
+- destructive_actions: list buttons that delete, archive, or remove data.
+- state_change_actions: list buttons that save, submit, or update data.
 - Return ONLY the JSON, no markdown.
 """
 
@@ -116,6 +129,12 @@ class AutonomousExplorer:
     ) -> SiteMap:
         """Run autonomous exploration on a Salesforce portal.
 
+        Smart Recon Flow:
+        1. Try automated login with provided credentials
+        2. If SSO/MFA detected, fall back to manual login
+        3. After login, BFS-crawl every page/tab
+        4. If login fails entirely, explore as guest
+
         Args:
             portal_url: Base URL of the portal to explore.
             credentials: Optional dict with login_url, username, password.
@@ -128,12 +147,15 @@ class AutonomousExplorer:
             return SiteMap()
 
         logger.info(f"Starting autonomous exploration of {portal_url}")
+        self._log_audit("explore_start", portal_url, "started")
+
         start_time = time.time()
 
         try:
             asyncio.run(self._run_exploration(portal_url, credentials))
         except Exception as e:
             logger.error(f"Exploration failed: {e}")
+            self._log_audit("explore_error", portal_url, "error", str(e))
 
         duration = time.time() - start_time
 
@@ -147,6 +169,9 @@ class AutonomousExplorer:
             exploration_duration_seconds=round(duration, 1),
             audit_log=self._audit_log,
         )
+
+        self._log_audit("explore_complete", portal_url, "success",
+                        f"{site_map.total_pages} pages, {site_map.total_input_fields} inputs")
 
         logger.info(
             f"Exploration complete: {site_map.total_pages} pages, "
@@ -163,7 +188,14 @@ class AutonomousExplorer:
     async def _run_exploration(
         self, portal_url: str, credentials: dict[str, Any] | None
     ):
-        """BFS exploration using Playwright."""
+        """BFS exploration using Playwright with smart login flow.
+
+        Smart Recon Flow:
+        1. Launch browser
+        2. Try automated login (if credentials provided)
+        3. If automated login fails (SSO/MFA/error), offer manual login
+        4. After login (auto or manual), BFS-crawl pages
+        """
         try:
             from playwright.async_api import async_playwright
         except ImportError:
@@ -181,10 +213,19 @@ class AutonomousExplorer:
         )
 
         try:
-            # Login if credentials provided
+            # Smart login flow
+            login_success = False
             if credentials and credentials.get("username"):
-                await self._login(portal_url, credentials)
-                self._log_audit("login", portal_url, "success", role=credentials.get("username", ""))
+                login_success = await self._smart_login(portal_url, credentials)
+
+            if not login_success and credentials:
+                # Auto login failed — try manual login
+                logger.info("Automated login failed — offering manual login")
+                login_success = await self._manual_login(portal_url)
+
+            if not login_success:
+                logger.warning("Login failed — exploring as guest")
+                self._log_audit("login", portal_url, "guest_mode")
 
             # Start BFS from portal URL
             self._queue.append((portal_url, 0, None))
@@ -198,6 +239,11 @@ class AutonomousExplorer:
                     continue
                 if self._normalise_url(url) in self._visited:
                     self._log_audit("skip", url, "already_visited")
+                    continue
+
+                # Scope check: stay on same domain
+                if not self._is_same_domain(portal_url, url):
+                    self._log_audit("skip", url, "out_of_scope", "different domain")
                     continue
 
                 snapshot = await self._explore_page(url, depth, parent_url)
@@ -217,15 +263,123 @@ class AutonomousExplorer:
         finally:
             await self._cleanup()
 
+    async def _smart_login(self, portal_url: str, credentials: dict[str, Any]) -> bool:
+        """Try automated login. Returns True if successful."""
+        try:
+            await self._login(portal_url, credentials)
+            # Check if we're still on the login page
+            page = await self._context.new_page()
+            try:
+                current_url = page.url
+                is_logged_in = "/s/login" not in current_url and "/login" not in current_url
+                if is_logged_in:
+                    self._log_audit("login", portal_url, "success", role=credentials.get("username", ""))
+                else:
+                    self._log_audit("login", portal_url, "failed", "still on login page")
+                return is_logged_in
+            finally:
+                await page.close()
+        except Exception as e:
+            logger.warning(f"Automated login failed: {e}")
+            self._log_audit("login", portal_url, "failed", str(e))
+            return False
+
+    async def _manual_login(self, portal_url: str) -> bool:
+        """Open a headed browser for manual SSO/MFA login.
+
+        After user logs in and presses ENTER, we extract cookies
+        and use them for the exploration session.
+        """
+        try:
+            from playwright.async_api import async_playwright
+        except ImportError:
+            return False
+
+        console = self._get_console()
+        console.print(
+            f"\n[bold yellow]MANUAL LOGIN REQUIRED[/bold yellow]\n"
+            f"[yellow]A browser window will open to: {portal_url}[/yellow]\n"
+            f"[yellow]Please log in via SSO/MFA/JIT in the browser.[/yellow]\n"
+            f"[yellow]Press ENTER in this terminal when you reach the dashboard.[/yellow]\n"
+        )
+
+        # Launch a SEPARATE headed browser for manual login
+        pw = await async_playwright().start()
+        browser = await pw.chromium.launch(headless=False)
+        context = await browser.new_context(
+            viewport={"width": 1920, "height": 1080},
+        )
+        page = await context.new_page()
+
+        try:
+            await page.goto(portal_url, timeout=self.page_load_timeout, wait_until="domcontentloaded")
+            logger.info(f"Opened manual login browser to: {portal_url}")
+
+            # Wait for user to log in
+            await asyncio.get_event_loop().run_in_executor(None, input)
+
+            # Extract cookies from the manual session
+            all_cookies = await context.cookies()
+            session_cookies = {c["name"]: c["value"] for c in all_cookies if c.get("name")}
+
+            if session_cookies:
+                logger.info(f"Extracted {len(session_cookies)} cookies from manual login")
+                self._log_audit("manual_login", portal_url, "success", f"{len(session_cookies)} cookies")
+
+                # Inject cookies into the main exploration context
+                await self._context.add_cookies(all_cookies)
+
+                # Verify we can access a page
+                test_page = await self._context.new_page()
+                try:
+                    await test_page.goto(portal_url, timeout=self.page_load_timeout, wait_until="domcontentloaded")
+                    await test_page.wait_for_timeout(3000)
+                    current_url = test_page.url
+                    is_logged_in = "/s/login" not in current_url and "/login" not in current_url
+                    if is_logged_in:
+                        logger.info(f"Manual login verified — exploring as authenticated user")
+                        return True
+                    else:
+                        logger.warning("Manual login cookies did not work — exploring as guest")
+                        return False
+                finally:
+                    await test_page.close()
+            else:
+                logger.warning("No cookies extracted from manual login")
+                return False
+
+        except Exception as e:
+            logger.error(f"Manual login failed: {e}")
+            return False
+        finally:
+            await context.close()
+            await browser.close()
+            await pw.stop()
+
     # ------------------------------------------------------------------
     # Page exploration
     # ------------------------------------------------------------------
     async def _explore_page(
         self, url: str, depth: int, parent_url: str | None
     ) -> PageSnapshot | None:
-        """Navigate to a page, capture snapshot, and analyse with Vision LLM."""
+        """Navigate to a page, capture snapshot, and analyse with Vision LLM.
+
+        V3.1: Now captures response headers, network requests, localStorage,
+        iframe content, and SF metadata for deeper recon.
+        """
         try:
             page = await self._context.new_page()
+
+            # --- V3.1: Intercept network requests (XHR/Fetch) ---
+            captured_requests: list[dict] = []
+            async def on_request(request):
+                if request.resource_type in ("xhr", "fetch", "document"):
+                    captured_requests.append({
+                        "url": request.url,
+                        "method": request.method,
+                        "resource_type": request.resource_type,
+                    })
+            page.on("request", on_request)
 
             try:
                 await page.goto(url, timeout=self.page_load_timeout, wait_until="domcontentloaded")
@@ -240,6 +394,21 @@ class AutonomousExplorer:
                 visible_text = await self._extract_visible_text(page)
                 input_fields = await self._extract_input_fields(page)
 
+                # V3.1: Capture response headers
+                response_headers = await self._extract_response_headers(page)
+
+                # V3.1: Capture localStorage/sessionStorage
+                storage_data = await self._extract_storage(page)
+
+                # V3.1: Capture iframe content
+                iframe_summary = await self._extract_iframe_content(page)
+
+                # V3.1: Capture SF metadata (object types, field names, Aura components)
+                sf_metadata = await self._extract_sf_metadata(page)
+
+                # V3.1: Detect page characteristics
+                page_chars = await self._detect_page_characteristics(page)
+
                 # Screenshot
                 safe_name = re.sub(r"[^\w\-]", "_", urlparse(current_url).path)[:40]
                 screenshot_path = self._output_dir / f"page_{depth}_{safe_name}.png"
@@ -253,23 +422,44 @@ class AutonomousExplorer:
                 self._log_audit("llm_call", current_url, "success" if analysis else "skipped",
                                 f"fields={len(analysis.get('input_fields', []))}" if analysis else "disabled")
 
+                # Build enhanced DOM summary with V3.1 data
+                enhanced_dom = self._build_enhanced_dom_summary(
+                    dom_summary, response_headers, storage_data,
+                    iframe_summary, sf_metadata, page_chars, captured_requests
+                )
+
+                # Determine category from LLM or heuristic
+                category = analysis.get("page_category", "") if analysis else ""
+                if not category:
+                    category = page_chars.get("category", "other")
+
+                # Determine sensitive data from LLM or heuristic
+                sensitive = analysis.get("sensitive_data_visible", False) if analysis else False
+                if not sensitive:
+                    sensitive = page_chars.get("has_pii", False) or page_chars.get("has_financial", False)
+
+                # Determine role indicators from LLM or heuristic
+                role = analysis.get("role_indicators", "") if analysis else ""
+                if not role:
+                    role = page_chars.get("role_hint", "")
+
                 snapshot = PageSnapshot(
                     url=current_url,
                     title=title,
-                    page_purpose=analysis.get("page_purpose", ""),
-                    page_category=analysis.get("page_category", "other"),
-                    features=analysis.get("features", []),
+                    page_purpose=analysis.get("page_purpose", "") if analysis else "",
+                    page_category=category,
+                    features=analysis.get("features", []) if analysis else [],
                     input_fields=[
                         InputFieldInfo(**f) for f in analysis.get("input_fields", [])
-                    ] if analysis.get("input_fields") else input_fields,
-                    navigation_targets=analysis.get("navigation_targets", []),
-                    sensitive_data_visible=analysis.get("sensitive_data_visible", False),
-                    sensitive_data_description=analysis.get("sensitive_data_description", ""),
-                    role_indicators=analysis.get("role_indicators", ""),
-                    api_endpoints_inferred=analysis.get("api_endpoints_inferred", []),
-                    analysis_confidence=float(analysis.get("confidence", 0.5)),
+                    ] if analysis and analysis.get("input_fields") else input_fields,
+                    navigation_targets=analysis.get("navigation_targets", []) if analysis else [],
+                    sensitive_data_visible=sensitive,
+                    sensitive_data_description=analysis.get("sensitive_data_description", "") if analysis else "",
+                    role_indicators=role,
+                    api_endpoints_inferred=analysis.get("api_endpoints_inferred", []) if analysis else [],
+                    analysis_confidence=float(analysis.get("confidence", 0.5)) if analysis else 0.0,
                     screenshot_path=str(screenshot_path),
-                    dom_summary=dom_summary[:_MAX_DOM_CHARS],
+                    dom_summary=enhanced_dom[:_MAX_DOM_CHARS],
                     visible_text=visible_text[:_MAX_VISIBLE_TEXT],
                     depth=depth,
                     parent_url=parent_url,
@@ -279,7 +469,9 @@ class AutonomousExplorer:
                 logger.info(
                     f"  [Depth {depth}] {snapshot.page_category}: "
                     f"{title[:50] or current_url[:50]} "
-                    f"({len(snapshot.input_fields)} inputs)"
+                    f"({len(snapshot.input_fields)} inputs, "
+                    f"{len(captured_requests)} XHR/Fetch, "
+                    f"{len(response_headers)} resp headers)"
                 )
 
                 return snapshot
@@ -393,6 +585,234 @@ class AutonomousExplorer:
             return [InputFieldInfo(**f) for f in fields_raw if f.get("name") or f.get("label")]
         except Exception:
             return []
+
+    # ------------------------------------------------------------------
+    # V3.1: Enhanced extraction methods
+    # ------------------------------------------------------------------
+    async def _extract_response_headers(self, page) -> dict[str, str]:
+        """Extract response headers from the last navigation."""
+        try:
+            return await page.evaluate("""() => {
+                // Performance API provides timing for last navigation
+                const entries = performance.getEntriesByType('navigation');
+                if (entries.length > 0) {
+                    return { 'status': String(entries[0].responseStatus || 0) };
+                }
+                return {};
+            }""")
+        except Exception:
+            return {}
+
+    async def _extract_storage(self, page) -> dict[str, str]:
+        """Extract localStorage and sessionStorage items."""
+        try:
+            return await page.evaluate("""() => {
+                const storage = {};
+                try {
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const key = localStorage.key(i);
+                        const val = localStorage.getItem(key);
+                        if (key && val && val.length < 200) {
+                            storage['ls_' + key] = val;
+                        }
+                    }
+                } catch(e) {}
+                try {
+                    for (let i = 0; i < sessionStorage.length; i++) {
+                        const key = sessionStorage.key(i);
+                        const val = sessionStorage.getItem(key);
+                        if (key && val && val.length < 200) {
+                            storage['ss_' + key] = val;
+                        }
+                    }
+                } catch(e) {}
+                return storage;
+            }""")
+        except Exception:
+            return {}
+
+    async def _extract_iframe_content(self, page) -> str:
+        """Extract summary of iframe content."""
+        try:
+            return await page.evaluate("""() => {
+                const iframes = document.querySelectorAll('iframe');
+                if (iframes.length === 0) return '';
+                let summary = `Iframes: ${iframes.length}\\n`;
+                iframes.forEach((iframe, i) => {
+                    if (i < 5) {
+                        const src = iframe.src || 'no-src';
+                        const name = iframe.name || 'unnamed';
+                        summary += `  [${i}] name="${name}" src="${src.substring(0, 100)}"\\n`;
+                    }
+                });
+                return summary;
+            }""")
+        except Exception:
+            return ""
+
+    async def _extract_sf_metadata(self, page) -> dict[str, Any]:
+        """Extract Salesforce-specific metadata from the page."""
+        try:
+            return await page.evaluate("""() => {
+                const meta = {};
+
+                // Extract SF object type from URL or data attributes
+                const url = window.location.href;
+                const objMatch = url.match(/\/lightning\\/o\\/([A-Za-z_]+)/);
+                if (objMatch) meta.object_type = objMatch[1];
+
+                // Extract record ID from URL
+                const recMatch = url.match(/\/lightning\\/r\\/[^\\/]+\\/([A-Za-z0-9]{15,18})/);
+                if (recMatch) meta.record_id = recMatch[1];
+
+                // Extract from data attributes (Lightning components)
+                document.querySelectorAll('[data-object-api-name], [data-record-id]').forEach(el => {
+                    const obj = el.getAttribute('data-object-api-name');
+                    const recId = el.getAttribute('data-record-id');
+                    if (obj) meta.object_type = obj;
+                    if (recId) meta.record_id = recId;
+                });
+
+                // Extract Aura component names
+                const auraComponents = [];
+                document.querySelectorAll('[data-aura-rendered-by], [aura-type]').forEach(el => {
+                    const type = el.getAttribute('aura-type') || el.getAttribute('data-aura-rendered-by');
+                    if (type && !auraComponents.includes(type)) auraComponents.push(type);
+                });
+                if (auraComponents.length > 0) meta.aura_components = auraComponents.slice(0, 10);
+
+                // Extract field names from labels
+                const fieldNames = [];
+                document.querySelectorAll('label, .slds-form-element__label').forEach(el => {
+                    const text = el.textContent.trim();
+                    if (text && text.length < 50) fieldNames.push(text);
+                });
+                if (fieldNames.length > 0) meta.field_names = fieldNames.slice(0, 20);
+
+                // Detect page type from SF patterns
+                meta.is_setup = url.includes('/setup/') || url.includes('/lightning/setup');
+                meta.is_admin = url.includes('/setup/') || url.includes('/admin');
+                meta.is_record_detail = url.includes('/lightning/r/');
+                meta.is_list_view = url.includes('/lightning/o/') && url.includes('/list');
+
+                return meta;
+            }""")
+        except Exception:
+            return {}
+
+    async def _detect_page_characteristics(self, page) -> dict[str, Any]:
+        """Detect page characteristics: file uploads, comments, state changes, profiles."""
+        try:
+            return await page.evaluate("""() => {
+                const chars = {};
+
+                // Detect file upload inputs
+                const fileInputs = document.querySelectorAll('input[type="file"]');
+                chars.has_file_upload = fileInputs.length > 0;
+                chars.file_upload_count = fileInputs.length;
+
+                // Detect comment/text areas (state change indicators)
+                const textAreas = document.querySelectorAll('textarea, [contenteditable="true"]');
+                chars.has_comment_box = textAreas.length > 0;
+                chars.comment_count = textAreas.length;
+
+                // Detect rich text editors (CKEditor, TinyMCE, etc.)
+                const richText = document.querySelectorAll('[class*="editor"], [class*="richtext"], [class*="ck-"], .cke_editable, .tox-edit-area');
+                chars.has_rich_text = richText.length > 0;
+
+                // Detect delete/archive buttons
+                const deleteButtons = document.querySelectorAll('button[title*="Delete"], button[title*="Archive"], [data-action*="delete"]');
+                chars.has_delete_action = deleteButtons.length > 0;
+
+                // Detect save/submit buttons (state change indicators)
+                const saveButtons = document.querySelectorAll('button[title*="Save"], button[title*="Submit"], button[title*="Update"], button[name="save"]');
+                chars.has_save_action = saveButtons.length > 0;
+
+                // Detect profile/user settings pages
+                const profileIndicators = document.querySelectorAll('[class*="profile"], [class*="settings"], [class*="preferences"], [class*="account"]');
+                chars.is_profile_or_settings = profileIndicators.length > 0;
+
+                // Detect admin indicators
+                const adminIndicators = document.querySelectorAll('[class*="admin"], [class*="setup"], [class*="configuration"]');
+                chars.is_admin_page = adminIndicators.length > 0;
+
+                // Detect sensitive data patterns
+                const bodyText = document.body ? document.body.innerText : '';
+                chars.has_pii = /email|phone|address|ssn|password/i.test(bodyText);
+                chars.has_financial = /price|amount|total|payment|invoice|budget/i.test(bodyText);
+                chars.has_internal_ids = /[0-9A-Za-z]{15}|[0-9A-Za-z]{18}/.test(bodyText);
+
+                // Detect role indicators
+                const roleText = bodyText.toLowerCase();
+                if (roleText.includes('admin') || roleText.includes('administrator')) chars.role_hint = 'admin';
+                else if (roleText.includes('manager')) chars.role_hint = 'manager';
+                else if (roleText.includes('user') || roleText.includes('member')) chars.role_hint = 'user';
+                else chars.role_hint = '';
+
+                // Detect page category from characteristics
+                if (chars.has_file_upload) chars.category = 'file_upload';
+                else if (chars.is_admin_page) chars.category = 'admin';
+                else if (chars.is_profile_or_settings) chars.category = 'settings';
+                else if (chars.has_comment_box && chars.has_save_action) chars.category = 'form';
+                else if (chars.has_delete_action) chars.category = 'admin_operations';
+                else chars.category = 'other';
+
+                return chars;
+            }""")
+        except Exception:
+            return {}
+
+    def _build_enhanced_dom_summary(
+        self, dom_summary: str, response_headers: dict,
+        storage: dict, iframe_summary: str, sf_metadata: dict,
+        page_chars: dict, network_requests: list
+    ) -> str:
+        """Build an enhanced DOM summary including V3.1 data."""
+        parts = [dom_summary]
+
+        if response_headers:
+            parts.append(f"\nResponse Headers: {json.dumps(response_headers)}")
+
+        if storage:
+            items = list(storage.items())[:10]
+            parts.append(f"\nStorage ({len(storage)} items): {json.dumps(dict(items))}")
+
+        if iframe_summary:
+            parts.append(f"\n{iframe_summary}")
+
+        if sf_metadata:
+            parts.append(f"\nSF Metadata: {json.dumps(sf_metadata)}")
+
+        if page_chars:
+            chars_summary = []
+            if page_chars.get("has_file_upload"):
+                chars_summary.append(f"File Uploads: {page_chars.get('file_upload_count', 0)}")
+            if page_chars.get("has_comment_box"):
+                chars_summary.append(f"Comment Boxes: {page_chars.get('comment_count', 0)}")
+            if page_chars.get("has_rich_text"):
+                chars_summary.append("Rich Text Editor: YES")
+            if page_chars.get("has_delete_action"):
+                chars_summary.append("Delete Actions: YES")
+            if page_chars.get("has_save_action"):
+                chars_summary.append("Save/Submit Actions: YES")
+            if page_chars.get("is_profile_or_settings"):
+                chars_summary.append("Profile/Settings Page: YES")
+            if page_chars.get("is_admin_page"):
+                chars_summary.append("Admin Page: YES")
+            if page_chars.get("has_pii"):
+                chars_summary.append("PII Detected: YES")
+            if page_chars.get("has_financial"):
+                chars_summary.append("Financial Data: YES")
+            if page_chars.get("has_internal_ids"):
+                chars_summary.append("Internal IDs: YES")
+            if chars_summary:
+                parts.append(f"\nPage Characteristics: {', '.join(chars_summary)}")
+
+        if network_requests:
+            unique_urls = list(set(r["url"] for r in network_requests))[:10]
+            parts.append(f"\nNetwork Requests ({len(network_requests)} total): {json.dumps(unique_urls)}")
+
+        return "\n".join(parts)
 
     # ------------------------------------------------------------------
     # Link discovery
@@ -794,6 +1214,21 @@ class AutonomousExplorer:
         # Remove trailing slash, fragment, and common tracking params
         path = parsed.path.rstrip("/") or "/"
         return f"{parsed.scheme}://{parsed.netloc}{path}"
+
+    @staticmethod
+    def _is_same_domain(base_url: str, target_url: str) -> bool:
+        """Check if target_url is on the same domain as base_url."""
+        try:
+            base_domain = urlparse(base_url).netloc
+            target_domain = urlparse(target_url).netloc
+            # Allow subdomains of the base domain
+            return target_domain == base_domain or target_domain.endswith("." + base_domain)
+        except Exception:
+            return False
+
+    def _get_console(self):
+        from rich.console import Console
+        return Console()
 
     def _count_categories(self) -> dict[str, int]:
         counts: dict[str, int] = {}

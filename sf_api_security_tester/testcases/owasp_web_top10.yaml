@@ -3,8 +3,8 @@
 # =============================================================================
 # Covers: A01-Broken Access, A02-Cryptographic Failures, A03-Injection,
 #         A04-Insecure Design, A05-Security Misconfig, A06-Vulnerable Components,
-#         A07-Auth Failures, A08-Data Integrity, A09-Logging Failures,
-#         A10-SSRF
+#         A07-Auth Failures, A08-Data Integrity (Insecure Deserialization),
+#         A09-Logging Failures, A10-SSRF
 
 test_cases:
 
@@ -370,3 +370,155 @@ test_cases:
         - "root:x:0:0"
         - "[boot loader]"
       description: "Path traversal allows file system access"
+
+  # ===========================================================================
+  # A09:2021 - Security Logging and Monitoring Failures
+  # ===========================================================================
+  - id: "A09-001"
+    name: "Account Lockout / Brute Force Monitoring"
+    owasp_mapping:
+      category: "A09:2021"
+      name: "Security Logging and Monitoring Failures"
+    applicable_categories:
+      - "authentication"
+    severity: "High"
+    mutation_type: "brute_force_monitoring"
+    payloads:
+      description: "Send 5 rapid failed auth requests to verify account lockout/monitoring"
+      failed_attempts: 5
+      delay_between_requests: 1.0
+      invalid_passwords:
+        - "wrong_password_1"
+        - "wrong_password_2"
+        - "wrong_password_3"
+        - "wrong_password_4"
+        - "wrong_password_5"
+    expected_secure_behavior: "Account locked or 403 after failed attempts"
+    finding_criteria:
+      description: "No account lockout or monitoring after multiple failed auth attempts"
+    context_requirement: "has_login_endpoint == true"
+
+  - id: "A09-002"
+    name: "Debug/Log Data Leakage in Error Responses"
+    owasp_mapping:
+      category: "A09:2021"
+      name: "Security Logging and Monitoring Failures"
+    applicable_categories:
+      - "authentication"
+      - "data_query"
+      - "user_data_crud"
+      - "business_logic"
+    severity: "Medium"
+    mutation_type: "error_log_leakage"
+    payloads:
+      description: "Trigger 500 errors and check for debug/log data in response"
+      malformed_requests:
+        - type: "invalid_json"
+          body: "not json at all {"
+        - type: "invalid_soql"
+          body: "SELECT * FROM"
+        - type: "overflow_string"
+          body: "A"
+          repeat: 100000
+    expected_secure_behavior: "Generic error message without debug data"
+    finding_criteria:
+      response_must_not_contain:
+        - "DEBUG"
+        - "TRACE"
+        - "System.debug"
+        - "stack trace"
+        - "line number"
+        - "ApexClass"
+        - "Caused by"
+        - "at line"
+        - "Internal Server Error"
+        - "AuraHandledException"
+      description: "Error response contains debug/log data or stack traces"
+    context_requirement: "always"
+
+  # ===========================================================================
+  # A10:2021 - Server-Side Request Forgery (SSRF)
+  # ===========================================================================
+  - id: "A10-001"
+    name: "SSRF - Internal Network Scan via URL Parameter"
+    owasp_mapping:
+      category: "A10:2021"
+      name: "Server-Side Request Forgery"
+    applicable_categories:
+      - "business_logic"
+      - "data_query"
+    severity: "High"
+    mutation_type: "ssrf_injection"
+    payloads:
+      internal_targets:
+        - "http://169.254.169.254/latest/meta-data/"
+        - "http://169.254.169.254/latest/meta-data/iam/security-credentials/"
+        - "http://localhost:8080"
+        - "http://127.0.0.1:3306"
+        - "http://[::1]"
+        - "http://0177.0.0.1"
+        - "http://0x7f000001"
+      injection_fields:
+        - "url"
+        - "website"
+        - "callback_url"
+        - "redirect_url"
+        - "image_url"
+        - "document_url"
+    expected_secure_behavior: "Server-side request is blocked or URL is sanitized"
+    finding_criteria:
+      status_codes: [200, 201, 202]
+      response_must_not_contain:
+        - "ami-id"
+        - "instance-id"
+        - "iam"
+        - "security-credentials"
+      description: "SSRF allows server to access internal resources"
+    context_requirement: "has_url_parameter == true"
+
+  # ===========================================================================
+  # A08:2021 - Software and Data Integrity Failures (Insecure Deserialization)
+  # ===========================================================================
+  - id: "A08-001"
+    name: "Insecure Deserialization - Type Confusion Fuzzing"
+    owasp_mapping:
+      category: "A08:2021"
+      name: "Software and Data Integrity Failures"
+    applicable_categories:
+      - "user_data_crud"
+      - "business_logic"
+      - "data_query"
+    severity: "High"
+    mutation_type: "type_confusion_fuzz"
+    payloads:
+      description: "Send mismatched data types to JSON endpoints to detect unhandled deserialization exceptions"
+      type_confusion_payloads:
+        - field_type: "string_to_array"
+          payload: '["unexpected_array_value"]'
+          description: "Send Array where String expected"
+        - field_type: "string_to_object"
+          payload: '{"nested": "object_value"}'
+          description: "Send Object where String expected"
+        - field_type: "integer_to_string"
+          payload: '"not_a_number"'
+          description: "Send String where Integer expected"
+        - field_type: "string_to_integer"
+          payload: '99999999999999999'
+          description: "Send Integer where String expected (overflow)"
+        - field_type: "null_injection"
+          payload: 'null'
+          description: "Send null where value expected"
+        - field_type: "boolean_confusion"
+          payload: '"true"'
+          description: "Send String 'true' where Boolean expected"
+    expected_secure_behavior: "400 Bad Request or type coercion handled gracefully"
+    finding_criteria:
+      response_must_not_contain:
+        - "ClassCastException"
+        - "SerializationException"
+        - "System.TypeException"
+        - "stack trace"
+        - "NullPointerException"
+        - "at line"
+        - "Caused by"
+      description: "Type confusion triggers unhandled deserialization exception or stack trace"

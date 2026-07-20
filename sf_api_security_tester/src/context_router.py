@@ -194,6 +194,36 @@ class ContextRouter:
         applicable_categories.add("sql_injection")
         applicable_categories.add("xss")
 
+        # --- CRITICAL: Map ContextRouter categories to EndpointCategory enum values ---
+        # The YAML test cases use categories like 'user_data_crud', 'data_query', etc.
+        # The ContextRouter uses internal names like 'bola_idor', 'soql_injection', etc.
+        # We must map these to the EndpointCategory enum values so the test engine matches.
+        mapped_categories: list[EndpointCategory] = []
+
+        # Mapping: ContextRouter internal -> EndpointCategory enum value
+        category_mapping = {
+            "bola_idor": ["user_data_crud", "data_query", "tenant_isolation"],
+            "soql_injection": ["data_query"],
+            "sql_injection": ["data_query"],
+            "xss": ["user_data_crud"],
+            "ssrf": ["business_logic"],
+            "mass_assignment": ["business_logic"],
+            "authentication_bypass": ["authentication"],
+            "bfla": ["admin_operations"],
+            "admin_bypass": ["admin_operations"],
+        }
+
+        for cat_str in applicable_categories:
+            targets = category_mapping.get(cat_str, [])
+            for target in targets:
+                try:
+                    mapped_categories.append(EndpointCategory(target))
+                except ValueError:
+                    pass
+
+        # Deduplicate
+        endpoint.categories = list(set(mapped_categories))
+
         ctx = EndpointContext(
             endpoint=endpoint,
             injection_points=injection_points,

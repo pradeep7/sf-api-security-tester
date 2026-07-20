@@ -4,8 +4,8 @@
 
 general:
   project_name: "Salesforce Portal Security Assessment"
-  target_env: "production"   # production | staging | sandbox
-  dry_run: false             # Set true to preview mutations without sending requests
+  target_env: "production" # production | staging | sandbox
+  dry_run: false # Set true to preview mutations without sending requests
   max_concurrent_requests: 5
   request_timeout_seconds: 30
   retry_count: 2
@@ -52,9 +52,9 @@ portals:
 # ---------------------------------------------------------------------------
 cross_tenant_ids:
   assist_portal:
-    current_user_id: "005000000000001"       # Replace
-    other_user_id: "005000000000002"         # Another user in same org
-    other_tenant_user_id: "005000000000003"  # User from different tenant
+    current_user_id: "005000000000001" # Replace
+    other_user_id: "005000000000002" # Another user in same org
+    other_tenant_user_id: "005000000000003" # User from different tenant
     record_ids:
       - id: "a00000000000001"
         object_type: "Case__c"
@@ -98,8 +98,8 @@ salesforce:
 # Playwright Settings
 # ---------------------------------------------------------------------------
 playwright:
-  headless: true
-  browser: "chromium"          # chromium | firefox | webkit
+  headless: false
+  browser: "chromium" # chromium | firefox | webkit
   viewport_width: 1920
   viewport_height: 1080
   screenshot_timeout: 15000
@@ -134,64 +134,62 @@ payloads:
   max_payloads_per_category: 200
   request_timeout: 15
 
-  # Raw GitHub URLs from swisskyrepo/PayloadsAllTheThings and danielmiessler/SecLists
+  # Raw GitHub URLs from swisskyrepo/PayloadsAllTheThings (.md files)
   sources:
     sql_injection:
-      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/SQL%20Injection/MySQL/Generic_MySQL_injections.txt"
-      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/SQL%20Injection/MySQL/MySQL_Bypass_waf.txt"
-      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/SQL%20Injection/Inband/UNION-based/detection_and_extraction.txt"
-      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/SQL%20Injection/Blind/Bool_blind.txt"
-      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/SQL%20Injection/Blind/Time_blind.txt"
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/SQL%20Injection/MySQL%20Injection.md"
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/SQL%20Injection/PostgreSQL%20Injection.md"
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/SQL%20Injection/MSSQL%20Injection.md"
 
     soql_injection:
-      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/SQL%20Injection/Inband/UNION-based/detection_and_extraction.txt"
-      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/SQL%20Injection/Generic/Basic_probing.txt"
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/SQL%20Injection/MySQL%20Injection.md"
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/SQL%20Injection/SQLite%20Injection.md"
 
     xss:
-      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/XSS%20Injection/Context%20from%20hackerone.txt"
-      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/XSS%20Injection/DOM%20based%20XSS%20Bypassing%20DOMpurify.txt"
-      - "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Fuzzing/special-chars.txt"
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/XSS%20Injection/1%20-%20XSS%20Filter%20Bypass.md"
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/XSS%20Injection/2%20-%20XSS%20Polyglot.md"
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/XSS%20Injection/3%20-%20XSS%20Common%20WAF%20Bypass.md"
 
     ssrf:
-      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/Server%20Side%20Request%20Forgery/Generic.txt"
-      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/Server%20Side%20Request%20Forgery/Cloud%20metadata%20requests.txt"
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/Server%20Side%20Request%20Forgery/SSRF-Advanced-Exploitation.md"
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/Server%20Side%20Request%20Forgery/SSRF-Cloud-Instances.md"
 
     nosql_injection:
-      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/NoSQL%20Injection/MongoDB.txt"
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/NoSQL%20Injection/README.md"
 
     path_traversal:
-      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/Path%20Traversal/Traversal%20techniques.txt"
-      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/Path%20Traversal/Basic%20traversal.txt"
+      - "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Fuzzing/special-chars.txt"
 
     command_injection:
-      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/Command%20Injection/Unix%20wildcards%20tricks.txt"
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/Command%20Injection/README.md"
 
-    cors_misconfiguration: []
+    cors_misconfiguration:
+      - "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Fuzzing/special-chars.txt"
 
     xxe:
-      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/XXE%20Injection/PHP%20filter%20wrappers.txt"
+      - "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Fuzzing/special-chars.txt"
 
     mass_assignment:
-      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/Insecure%20Direct%20Object%20References/Insecure%20Direct%20Object%20References.txt"
+      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/Insecure%20Direct%20Object%20References/README.md"
+      - "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Fuzzing/special-chars.txt"
 
     authentication_bypass:
-      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/Authentication%20bypass/CVE.txt"
+      - "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Fuzzing/special-chars.txt"
 
     lfi:
-      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/Inclusion%20/Path%20Traversal/detection.txt"
-      - "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/Inclusion%20/Path%20Traversal/Basic%20payload.txt"
+      - "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Fuzzing/special-chars.txt"
 
 # ---------------------------------------------------------------------------
 # WAF Evasion Settings (V2 - Smart Context-Aware Engine)
 # ---------------------------------------------------------------------------
 waf_evasion:
   enabled: true
-  delay_between_requests: 1.0       # seconds between requests
-  max_delay: 60.0                    # max backoff delay
-  backoff_multiplier: 2.0            # exponential backoff multiplier
-  max_retries: 5                     # max retries on WAF block
-  rate_limit_cooldown: 30.0          # cooldown after sustained blocks
-  rotate_user_agent: true            # rotate User-Agent on WAF detection
+  delay_between_requests: 1.0 # seconds between requests
+  max_delay: 60.0 # max backoff delay
+  backoff_multiplier: 2.0 # exponential backoff multiplier
+  max_retries: 5 # max retries on WAF block
+  rate_limit_cooldown: 30.0 # cooldown after sustained blocks
+  rotate_user_agent: true # rotate User-Agent on WAF detection
 
 # ---------------------------------------------------------------------------
 # Autonomous AI Reconnaissance (V3.0 — Phase 0)
@@ -199,40 +197,40 @@ waf_evasion:
 # Uses Playwright BFS + Vision LLM to explore the live portal, discover
 # pages, and build a Feature Inventory before any attack testing.
 exploration:
-  enabled: true                       # Set false to skip Phase 0 (HAR-only mode)
-  max_pages: 100                      # Max pages to discover
-  max_depth: 5                        # Max BFS depth from portal root
-  page_load_timeout: 30               # Seconds to wait for page load
+  enabled: true # Set false to skip Phase 0 (HAR-only mode)
+  max_pages: 100 # Max pages to discover
+  max_depth: 5 # Max BFS depth from portal root
+  page_load_timeout: 30 # Seconds to wait for page load
 
 discovery:
-  enabled: true                       # Enable DOM XSS probing
-  dom_probe_delay: 2                  # Seconds to wait after injecting probe
-  safe_probes_only: true              # MUST be true — prevents malicious payload injection
-  vision_model: "gpt-4o"             # Must support vision
-  max_screenshots_per_run: 50         # Cost control for Vision LLM calls
+  enabled: true # Enable DOM XSS probing
+  dom_probe_delay: 2 # Seconds to wait after injecting probe
+  safe_probes_only: true # MUST be true — prevents malicious payload injection
+  vision_model: "gpt-4o" # Must support vision
+  max_screenshots_per_run: 50 # Cost control for Vision LLM calls
 
 safe_execution:
-  enabled: true                       # Set false to skip safe probe execution
-  probe_prefix: "SF_PROBE_"           # Prefix for all safe probe strings
-  max_tests_per_page: 10              # Max safe tests per discovered page
-  screenshot_after_each_test: true    # Capture screenshot after each probe
+  enabled: true # Set false to skip safe probe execution
+  probe_prefix: "SF_PROBE_" # Prefix for all safe probe strings
+  max_tests_per_page: 10 # Max safe tests per discovered page
+  screenshot_after_each_test: true # Capture screenshot after each probe
 
 role_comparison:
-  enabled: false                      # Set true to compare different role views
+  enabled: false # Set true to compare different role views
   roles:
     - name: "admin"
-      credentials_key: "admin_creds"  # Key in credentials.yaml
+      credentials_key: "admin_creds" # Key in credentials.yaml
     - name: "standard_user"
-      credentials_key: "user_creds"   # Key in credentials.yaml
+      credentials_key: "user_creds" # Key in credentials.yaml
 
 # ---------------------------------------------------------------------------
 # Upstream Proxy (Caido / Burp Suite Integration)
 # ---------------------------------------------------------------------------
 # Routes all HTTP traffic through a proxy for inspection and logging.
 upstream_proxy:
-  enabled: false                      # Set true to route through proxy
-  url: "http://127.0.0.1:8080"       # Default Caido/Burp/ZAP port
-  proxy_type: "http"                 # http | socks5
+  enabled: false # Set true to route through proxy
+  url: "http://127.0.0.1:8080" # Default Caido/Burp/ZAP port
+  proxy_type: "http" # http | socks5
 
 # ---------------------------------------------------------------------------
 # HAR Generation (Phase -1: Live Traffic Capture)
@@ -241,8 +239,8 @@ upstream_proxy:
 har_generation:
   enabled: true
   default_output_path: "output/live_crawl.har"
-  record_mode: "full"                # "full" records all traffic; "minimal" records only API calls
-  headless: false                   # Must be false — user needs to see the browser
+  record_mode: "full" # "full" records all traffic; "minimal" records only API calls
+  headless: false # Must be false — user needs to see the browser
 
 # ---------------------------------------------------------------------------
 # LLM Verification (Hybrid AI Architecture — V2.2)
@@ -251,15 +249,15 @@ har_generation:
 # The LLM reviews ONLY those to confirm/reject.  API keys are read from
 # environment variables — never hardcoded in this file.
 llm_config:
-  enabled: false                      # Set true to enable AI verification
-  provider: "openai"                  # openai | anthropic
-  model: "gpt-4o-mini"               # Fast/cheap model for triage
-  api_key_env_var: "LLM_API_KEY"     # Read API key from this env var
-  max_tokens_per_request: 1000       # Max tokens per verification call
-  timeout_seconds: 30                 # HTTP timeout for LLM calls
-  temperature: 0.1                    # Low temp for deterministic analysis
-  max_body_chars: 2000               # Max response body chars sent to LLM
-  max_request_chars: 1000            # Max request body chars sent to LLM
+  enabled: false # Set true to enable AI verification
+  provider: "openai" # openai | anthropic
+  model: "gpt-4o-mini" # Fast/cheap model for triage
+  api_key_env_var: "LLM_API_KEY" # Read API key from this env var
+  max_tokens_per_request: 1000 # Max tokens per verification call
+  timeout_seconds: 30 # HTTP timeout for LLM calls
+  temperature: 0.1 # Low temp for deterministic analysis
+  max_body_chars: 2000 # Max response body chars sent to LLM
+  max_request_chars: 1000 # Max request body chars sent to LLM
 
 # ---------------------------------------------------------------------------
 # Visual DAST — Vision LLM Screenshot Analysis (V2.3)
@@ -268,11 +266,11 @@ llm_config:
 # and broken rendering.  Only activated when the local script detected
 # payload reflection in the HTTP response (cost control gate).
 visual_audit:
-  enabled: false                     # Set true to enable visual DAST
-  provider: "openai"                 # Must be a vision-capable provider
-  model: "gpt-4o"                    # Must be a vision-capable model
-  api_key_env_var: "LLM_API_KEY"    # Reuse the same key as LLM verifier
-  max_tokens: 800                    # Max tokens per visual analysis
-  temperature: 0.1                   # Low temp for deterministic analysis
-  timeout_seconds: 45                # Vision models take longer
-  max_dom_chars: 2000               # Max DOM snippet chars sent to Vision LLM
+  enabled: false # Set true to enable visual DAST
+  provider: "openai" # Must be a vision-capable provider
+  model: "gpt-4o" # Must be a vision-capable model
+  api_key_env_var: "LLM_API_KEY" # Reuse the same key as LLM verifier
+  max_tokens: 800 # Max tokens per visual analysis
+  temperature: 0.1 # Low temp for deterministic analysis
+  timeout_seconds: 45 # Vision models take longer
+  max_dom_chars: 2000 # Max DOM snippet chars sent to Vision LLM

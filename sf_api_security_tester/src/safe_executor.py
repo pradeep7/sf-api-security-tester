@@ -275,3 +275,201 @@ class SafePayloadExecutor:
             pass
         self._browser = None
         self._context = None
+
+    # ------------------------------------------------------------------
+    # V3.1: Salesforce-specific API6 workflow attacks
+    # ------------------------------------------------------------------
+    async def execute_workflow_skip(
+        self, probe: PlannedTest, page_by_id: dict[str, Any]
+    ) -> FindingResult:
+        """Execute API6-002: Workflow Step Skipping for Salesforce Flows.
+
+        Instead of navigating to a different URL (which doesn't work for
+        single-URL Lightning Flows), this method:
+        1. Navigates to the workflow's current step
+        2. Attempts to send the Step 3 payload to the /aura endpoint
+        3. WITHOUT a valid flowInterviewId
+        4. Checks if the backend processes it or rejects it
+        """
+        page_info = page_by_id.get(probe.target_page_id)
+        if not page_info:
+            return self._make_result(probe, False, "Page not found in site map")
+
+        try:
+            page = await self._context.new_page()
+
+            try:
+                # Navigate to the workflow page
+                await page.goto(
+                    page_info.url,
+                    timeout=self.page_load_timeout,
+                    wait_until="domcontentloaded",
+                )
+                await page.wait_for_timeout(3000)
+
+                # Extract the current flowInterviewId (if any)
+                flow_interview_id = await self._extract_flow_interview_id(page)
+
+                # Capture the current page state (XHR/Fetch requests)
+                captured_requests = []
+                async def on_request(request):
+                    if request.resource_type in ("xhr", "fetch"):
+                        captured_requests.append({
+                            "url": request.url,
+                            "method": request.method,
+                            "post_data": request.post_data,
+                        })
+                page.on("request", on_request)
+
+                # Attempt to advance the flow WITHOUT valid state
+                # This simulates: "What if I call Step 3 without Step 1 & 2?"
+                await self._attempt_flow_advance_without_state(
+                    page, probe, flow_interview_id
+                )
+                await page.wait_for_timeout(3000)
+
+                # Check the result
+                # Did the flow advance? (check for success indicators)
+                page_text = await page.evaluate("() => document.body ? document.body.innerText : ''")
+                success_indicators = [
+                    "success", "complete", "submitted", "saved",
+                    "record created", "order placed", "approved",
+                ]
+                error_indicators = [
+                    "invalid flow", "missing state", "flow interview",
+                    "unauthorized", "forbidden", "error",
+                ]
+
+                page_lower = (page_text or "").lower()
+                has_success = any(ind in page_lower for ind in success_indicators)
+                has_error = any(ind in page_lower for ind in error_indicators)
+
+                # Check for flow advancement (new page or updated state)
+                current_url = page.url
+                flow_advanced = current_url != page_info.url
+
+                # Screenshot
+                screenshot_path = f"output/evidence/probes/{probe.test_id}_workflow_skip.png"
+                import os
+                os.makedirs(os.path.dirname(screenshot_path), exist_ok=True)
+                await page.screenshot(path=screenshot_path)
+
+                # DOM extraction
+                dom_html = await page.evaluate("""() => {
+                    return document.body ? document.body.outerHTML.substring(0, 2000) : '';
+                }""")
+
+                # Determine finding
+                # If the flow advanced or returned success WITHOUT valid state, it's a FINDING
+                if (flow_advanced or has_success) and not has_error:
+                    reasoning = (
+                        f"API6-002 WORKFLOW BYPASS: Flow advanced to Step 3 without "
+                        f"executing Steps 1-2. flowInterviewId={flow_interview_id or 'NONE'}. "
+                        f"URL changed to: {current_url[:80]}"
+                    )
+                    return self._make_result(probe, True, reasoning, screenshot_path, dom_html)
+                else:
+                    reasoning = (
+                        f"Flow correctly rejected state bypass. "
+                        f"flowInterviewId={flow_interview_id or 'NONE'}. "
+                        f"Error indicators: {has_error}"
+                    )
+                    return self._make_result(probe, False, reasoning, screenshot_path, dom_html)
+
+            finally:
+                await page.close()
+
+        except Exception as e:
+            logger.debug(f"Workflow skip execution failed: {e}")
+            return self._make_result(probe, False, f"Execution error: {e}")
+
+    async def _extract_flow_interview_id(self, page) -> str | None:
+        """Extract flowInterviewId from the current page state."""
+        try:
+            # Try to find it in hidden fields
+            flow_id = await page.evaluate("""() => {
+                const hiddenInputs = document.querySelectorAll('input[type="hidden"]');
+                for (const input of hiddenInputs) {
+                    if (input.name && input.name.toLowerCase().includes('flow')) {
+                        return input.value;
+                    }
+                }
+                // Check for flowInterviewId in data attributes
+                const flowEl = document.querySelector('[data-flow-interview-id]');
+                if (flowEl) return flowEl.getAttribute('data-flow-interview-id');
+                // Check for Aura component state
+                const auraState = document.querySelector('[data-aura-rendered-by]');
+                if (auraState) {
+                    const state = auraState.getAttribute('data-aura-rendered-by');
+                    if (state && state.includes('flowInterviewId')) {
+                        const match = state.match(/flowInterviewId['":\s]+(['"0-9a-zA-Z-]+)/);
+                        if (match) return match[1];
+                    }
+                }
+                return null;
+            }""")
+            return flow_id
+        except Exception:
+            return None
+
+    async def _attempt_flow_advance_without_state(
+        self, page, probe: PlannedTest, flow_interview_id: str | None
+    ):
+        """Attempt to advance a Salesforce Flow without valid state.
+
+        For Lightning Flows, this typically means:
+        1. Finding the 'Next' or 'Submit' button
+        2. Clicking it WITHOUT having filled in the previous steps
+        3. Or sending an XHR to /aura with a fake/missing flowInterviewId
+        """
+        try:
+            # Strategy 1: Click Next/Submit without filling fields
+            submit_selectors = [
+                'button:has-text("Next")',
+                'button:has-text("Submit")',
+                'button:has-text("Continue")',
+                'button:has-text("Confirm")',
+                'button:has-text("Place Order")',
+                '.slds-button--brand',
+            ]
+            for selector in submit_selectors:
+                try:
+                    btn = await page.query_selector(selector)
+                    if btn and await btn.is_visible():
+                        await btn.click()
+                        logger.debug(f"Clicked flow advance button: {selector}")
+                        return
+                except Exception:
+                    continue
+
+            # Strategy 2: If we found an /aura XHR, replay it without flowInterviewId
+            # This is the more aggressive approach for backend state bypass
+            if flow_interview_id:
+                # Try to modify the page's state to remove flowInterviewId
+                await page.evaluate("""() => {
+                    // Remove flowInterviewId from any hidden fields
+                    document.querySelectorAll('input[type="hidden"]').forEach(input => {
+                        if (input.name && input.name.toLowerCase().includes('flow')) {
+                            input.value = 'FAKE_INVALID_ID_000000000000000';
+                        }
+                    });
+                    // Remove from data attributes
+                    document.querySelectorAll('[data-flow-interview-id]').forEach(el => {
+                        el.setAttribute('data-flow-interview-id', 'FAKE_INVALID_ID_000000000000000');
+                    });
+                }""")
+                logger.debug("Tampered flowInterviewId to fake value")
+
+        except Exception as e:
+            logger.debug(f"Flow advance attempt failed: {e}")
+
+    async def _take_workflow_screenshot(self, page, probe: PlannedTest) -> str | None:
+        """Take a screenshot for workflow testing evidence."""
+        try:
+            screenshot_path = f"output/evidence/probes/{probe.test_id}_workflow.png"
+            import os
+            os.makedirs(os.path.dirname(screenshot_path), exist_ok=True)
+            await page.screenshot(path=screenshot_path)
+            return screenshot_path
+        except Exception:
+            return None

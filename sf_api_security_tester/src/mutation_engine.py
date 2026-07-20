@@ -34,6 +34,7 @@ class MutationEngine:
         self.cross_tenant_ids = cross_tenant_ids or {}
         self.payload_manager = payload_manager or PayloadManager(
             cache_dir=payload_config.get("cache_dir", "payloads_cache") if payload_config else "payloads_cache",
+            sources=payload_config.get("sources") if payload_config else None,
             max_payloads_per_category=payload_config.get("max_payloads_per_category", 200) if payload_config else 200,
             cache_ttl_days=payload_config.get("cache_ttl_days", 7) if payload_config else 7,
             request_timeout=payload_config.get("request_timeout", 15) if payload_config else 15,

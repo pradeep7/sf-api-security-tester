@@ -60,19 +60,22 @@ _OWASP_STANDARDS: dict[str, dict[str, Any]] = {
         ],
     },
     "owasp_scp_v2": {
-        "full_name": "OWASP Secure Coding Practices (v2)",
+        "full_name": "OWASP Secure Coding Practices Quick Reference Guide (v2)",
         "short_name": "Secure Coding",
         "categories": [
-            ("5.1", "Input Validation"),
-            ("5.2", "Output Encoding"),
-            ("5.3", "Authentication"),
-            ("5.4", "Access Control"),
-            ("5.5", "Session Management"),
-            ("5.6", "Error Handling and Logging"),
-            ("5.7", "Data Protection"),
-            ("5.8", "Communication Security"),
-            ("5.9", "System Configuration"),
-            ("5.10", "Database Security"),
+            ("SCP-01", "Input Validation"),
+            ("SCP-02", "Output Encoding"),
+            ("SCP-03", "Authentication"),
+            ("SCP-04", "Session Management"),
+            ("SCP-05", "Access Control"),
+            ("SCP-06", "Cryptographic Practices"),
+            ("SCP-07", "Error Handling and Logging"),
+            ("SCP-08", "Data Protection and Privacy"),
+            ("SCP-09", "Communications Security"),
+            ("SCP-10", "System Configuration"),
+            ("SCP-11", "Database Security"),
+            ("SCP-12", "File Management"),
+            ("SCP-13", "Memory Management"),
         ],
     },
 }
@@ -370,6 +373,150 @@ footer {
     color: var(--text-muted);
     font-size: 12px;
     border-top: 1px solid var(--border);
+}
+
+/* --- Workflow Visualization (V3.1) --- */
+.workflows-section { margin-bottom: 30px; }
+
+.workflow-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 16px;
+}
+
+.workflow-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.workflow-badge {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: rgba(188,140,255,0.15);
+    color: var(--accent-purple);
+    border: 1px solid rgba(188,140,255,0.3);
+    font-family: monospace;
+    text-transform: uppercase;
+}
+
+.workflow-name {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.workflow-flowchart {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 16px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+}
+
+.workflow-step {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    min-width: 140px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.step-number {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    line-height: 24px;
+    border-radius: 50%;
+    background: var(--accent-blue);
+    color: white;
+    font-size: 12px;
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+
+.step-action {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.step-url {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: monospace;
+    word-break: break-all;
+}
+
+.step-params {
+    font-size: 9px;
+    color: var(--accent-yellow);
+    margin-top: 4px;
+}
+
+.workflow-arrow {
+    font-size: 20px;
+    color: var(--accent-blue);
+    flex-shrink: 0;
+}
+
+.workflow-results {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+.workflow-results h4 {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+.workflow-test-result {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+}
+
+.workflow-test-id {
+    font-size: 12px;
+    color: var(--text-primary);
+    font-family: monospace;
+}
+
+.workflow-result-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.workflow-result-pass { background: rgba(63,185,80,0.2); color: var(--accent-green); }
+.workflow-result-fail { background: rgba(248,81,73,0.2); color: var(--accent-red); }
+.workflow-result-na { background: var(--bg-tertiary); color: var(--text-muted); }
+
+.workflow-empty {
+    text-align: center;
+    padding: 30px;
+    color: var(--text-muted);
+    font-size: 14px;
+    background: var(--bg-secondary);
+    border: 1px dashed var(--border);
+    border-radius: 8px;
 }
 
 /* --- Feature Inventory (V3.0) --- */
@@ -959,6 +1106,64 @@ footer {
 </div>
 {% endif %}
 
+<!-- Discovered Business Workflows (V3.1) -->
+{% if workflows %}
+<h2 class="section-title">Discovered Business Workflows</h2>
+<div class="workflows-section">
+{% for wf in workflows %}
+<div class="workflow-card">
+    <div class="workflow-header">
+        <span class="workflow-badge">{{ wf.detected_via }}</span>
+        <span class="workflow-name">{{ wf.name }}</span>
+        <span class="confidence-badge">Confidence: {{ "%.0f"|format(wf.confidence * 100) }}%</span>
+    </div>
+
+    <!-- State Machine Flowchart -->
+    <div class="workflow-flowchart">
+        {% for step in wf.steps %}
+        <div class="workflow-step">
+            <div class="step-number">{{ step.step_number }}</div>
+            <div class="step-action">{{ step.action_description[:40] }}</div>
+            <div class="step-url">{{ step.url[:50] }}{% if step.url|length > 50 %}...{% endif %}</div>
+            {% if step.state_parameters %}
+            <div class="step-params">State: {{ step.state_parameters | join(', ') }}</div>
+            {% endif %}
+        </div>
+        {% if not loop.last %}
+        <div class="workflow-arrow">&#x2192;</div>
+        {% endif %}
+        {% endfor %}
+    </div>
+
+    <!-- API6 Test Results -->
+    {% if wf.api6_test_results %}
+    <div class="workflow-results">
+        <h4>API6 Test Results</h4>
+        {% for test_id, result in wf.api6_test_results.items() %}
+        <div class="workflow-test-result">
+            <span class="workflow-test-id">{{ test_id }}</span>
+            {% if result == 'PASS' %}
+            <span class="workflow-result-badge workflow-result-pass">PASS</span>
+            {% elif result == 'FAIL' %}
+            <span class="workflow-result-badge workflow-result-fail">FAIL</span>
+            {% else %}
+            <span class="workflow-result-badge workflow-result-na">N/A</span>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endfor %}
+</div>
+{% else %}
+<div class="workflows-section">
+    <div class="workflow-empty">
+        No multi-step business workflows (Salesforce Flows, Wizards) were detected during autonomous reconnaissance.
+    </div>
+</div>
+{% endif %}
+
 <!-- OWASP Compliance Coverage Matrix -->
 <h2 class="section-title">OWASP Compliance Coverage Matrix</h2>
 <div class="compliance-section">
@@ -1284,6 +1489,11 @@ class ReportGenerator:
         # Build OWASP Compliance Coverage Matrix
         compliance_data = self._build_compliance_matrix(report.all_results)
 
+        # Extract workflows from feature inventory
+        workflows = []
+        if report.feature_inventory and report.feature_inventory.workflows:
+            workflows = report.feature_inventory.workflows
+
         html_content = template.render(
             report=report,
             summary=report.executive_summary,
@@ -1291,6 +1501,7 @@ class ReportGenerator:
             compliance_data=compliance_data,
             site_map=report.site_map,
             feature_inventory=report.feature_inventory,
+            workflows=workflows,
         )
 
         html_path = self.output_dir / "security_report.html"
@@ -1405,13 +1616,15 @@ class ReportGenerator:
             return "owasp_api_2023"
         if cat_upper.startswith("A0") or cat_upper.startswith("A1"):
             return "owasp_web_2021"
+        if cat_upper.startswith("SCP"):
+            return "owasp_scp_v2"
         if "." in owasp_category and owasp_category[0].isdigit():
             return "owasp_scp_v2"
         # Heuristic fallback based on name keywords
         cat_lower = owasp_category.lower()
         if "api" in cat_lower:
             return "owasp_api_2023"
-        if "scg" in cat_lower or "secure" in cat_lower or "input" in cat_lower:
+        if "scg" in cat_lower or "scp" in cat_lower or "secure" in cat_lower or "input" in cat_lower:
             return "owasp_scp_v2"
         return "owasp_web_2021"
 
@@ -1422,10 +1635,15 @@ class ReportGenerator:
         Examples:
             'API1:2023' -> 'API1'
             'A03:2021'  -> 'A03'
-            'SCG-InputValidation' -> '5.1'
+            'SCP-01'    -> 'SCP-01'
+            'SCG-InputValidation' -> 'SCG-InputValidation' (legacy)
             '5.1'       -> '5.1'
         """
         cat = owasp_category.strip()
+
+        # SCP-XX format (new v2 mapping)
+        if cat.upper().startswith("SCP"):
+            return cat.split(":")[0]
 
         # Direct code (e.g. "API1", "A03")
         if cat[:3] in ("API", "api"):

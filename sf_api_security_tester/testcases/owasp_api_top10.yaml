@@ -1,10 +1,10 @@
 # =============================================================================
 # OWASP API Security Top 10 (2023) - Test Case Definitions
 # =============================================================================
-# Covers: API1-BOLA, API2-BrokenAuth, API3-BFLA, API4-UnrestrictedResource,
-#         API5-BrokenFunctionAuth, API6-UnrestrictedAccess, API7-SSRF,
-#         API8-ImproperAssetMgmt, API8-ImproperInventory, API9-SSRF,
-#         API10-UnsafeConsumption
+# Covers: API1-BOLA, API2-BrokenAuth, API3-BrokenObjectPropertyAuth,
+#         API4-UnrestrictedResource, API5-BrokenFunctionAuth,
+#         API6-UnrestrictedBusinessFlows, API7-SSRF, API8-SecurityMisconfig,
+#         API9-ImproperInventory, API10-UnsafeConsumption
 
 test_cases:
 
@@ -189,69 +189,59 @@ test_cases:
       description: "Endpoint does not validate session expiry"
 
   # ===========================================================================
-  # API3:2023 - Broken Function Level Authorization (BFLA)
+  # API3:2023 - Broken Object Property Level Authorization
   # ===========================================================================
   - id: "API3-001"
-    name: "BFLA - Access Admin Endpoint with User Token"
+    name: "Excessive Data Exposure - Hidden Fields in GET Response"
     owasp_mapping:
       category: "API3:2023"
-      name: "Broken Function Level Authorization"
+      name: "Broken Object Property Level Authorization"
     applicable_categories:
-      - "admin_operations"
+      - "user_data_crud"
+      - "data_query"
     severity: "High"
-    mutation_type: "method_override"
+    mutation_type: "pii_check"
     payloads:
-      description: "Attempt to access admin-only paths with standard user token"
-      method_override_headers:
-        - "X-HTTP-Method-Override"
-        - "X-HTTP-Method"
-        - "_method"
-      target_methods: ["DELETE", "PUT", "PATCH"]
-    expected_secure_behavior: "403 Forbidden"
+      description: "Check if GET responses contain hidden/sensitive fields that should be masked"
+      pii_fields:
+        - "Password__c"
+        - "SSN__c"
+        - "Credit_Card__c"
+        - "CreatedById"
+        - "LastModifiedById"
+        - "SystemModstamp"
+        - "Owner.ProfileId"
+    expected_secure_behavior: "Sensitive fields masked or excluded from response"
     finding_criteria:
-      status_codes: [200, 201, 204]
-      description: "Admin function accessible with regular user token"
+      description: "GET response exposes fields that should be hidden by FLS/CLS"
 
   - id: "API3-002"
-    name: "BFLA - HTTP Method Tampering"
+    name: "Mass Assignment - Update Read-Only System Fields via PUT/PATCH"
     owasp_mapping:
       category: "API3:2023"
-      name: "Broken Function Level Authorization"
+      name: "Broken Object Property Level Authorization"
     applicable_categories:
-      - "admin_operations"
       - "user_data_crud"
-    severity: "High"
-    mutation_type: "method_change"
-    payloads:
-      description: "Change HTTP method to test authorization bypass"
-      method_sequence: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
-    expected_secure_behavior: "403 or 405 Method Not Allowed"
-    finding_criteria:
-      status_codes: [200, 201, 204]
-      description: "Endpoint accepts unexpected HTTP methods"
-
-  - id: "API3-003"
-    name: "BFLA - Apex Class Direct Execution (Tooling API)"
-    owasp_mapping:
-      category: "API3:2023"
-      name: "Broken Function Level Authorization"
-    applicable_categories:
-      - "admin_operations"
       - "business_logic"
     severity: "High"
-    mutation_type: "method_change"
+    mutation_type: "mass_assignment"
     payloads:
-      description: "Attempt to execute arbitrary Apex via the executeAnonymous tooling API endpoint"
-      method_sequence: ["POST"]
-      body_injections:
-        - "System.debug('Unauthorized execution');"
-    expected_secure_behavior: "401 Unauthorized or 403 Forbidden (Insufficient Privileges)"
+      description: "Attempt to update read-only system fields via PUT/PATCH"
+      field_injections:
+        - field: "CreatedById"
+          value: "005000000000001"
+        - field: "IsDeleted"
+          value: true
+        - field: "LastModifiedById"
+          value: "005000000000001"
+        - field: "SystemModstamp"
+          value: "2024-01-01T00:00:00Z"
+        - field: "RecordTypeId"
+          value: "012000000000001"
+    expected_secure_behavior: "Read-only fields ignored or 403 Forbidden"
     finding_criteria:
-      status_codes: [200]
-      response_must_contain:
-        - '"success": true'
-        - '"compiled": true'
-      description: "Non-admin user successfully executed anonymous Apex code"
+      status_codes: [200, 204]
+      description: "System accepts updates to read-only system fields"
 
   # ===========================================================================
   # API4:2023 - Unrestricted Resource Consumption
@@ -294,6 +284,124 @@ test_cases:
     finding_criteria:
       status_codes: [200, 201, 204]
       description: "No rate limiting on API endpoints"
+
+  # ===========================================================================
+  # API5:2023 - Broken Function Level Authorization (BFLA)
+  # ===========================================================================
+  - id: "API5-001"
+    name: "BFLA - Standard User Accessing Admin/Tooling Endpoints"
+    owasp_mapping:
+      category: "API5:2023"
+      name: "Broken Function Level Authorization"
+    applicable_categories:
+      - "admin_operations"
+    severity: "High"
+    mutation_type: "forced_browsing"
+    payloads:
+      description: "Standard user attempts to access admin-only Tooling API and Setup endpoints"
+      paths_to_test:
+        - "/services/data/v58.0/tooling/query?q=SELECT+Id+FROM+ApexClass"
+        - "/services/data/v58.0/tooling/query?q=SELECT+Id+FROM+ApexTrigger"
+        - "/services/data/v58.0/setup/objectManager/home"
+        - "/services/data/v58.0/sobjects/User/describe"
+        - "/services/data/v58.0/limits"
+    expected_secure_behavior: "403 Forbidden or 401 Unauthorized"
+    finding_criteria:
+      status_codes: [200, 201]
+      description: "Standard user can access admin/Tooling API endpoints"
+
+  - id: "API5-002"
+    name: "BFLA - HTTP Method Tampering to Bypass Function Restrictions"
+    owasp_mapping:
+      category: "API5:2023"
+      name: "Broken Function Level Authorization"
+    applicable_categories:
+      - "admin_operations"
+      - "user_data_crud"
+    severity: "High"
+    mutation_type: "method_override"
+    payloads:
+      description: "Use HTTP method override headers to bypass function-level restrictions"
+      method_override_headers:
+        - "X-HTTP-Method-Override"
+        - "X-HTTP-Method"
+        - "_method"
+      target_methods: ["DELETE", "PUT", "PATCH"]
+    expected_secure_behavior: "403 Forbidden or 405 Method Not Allowed"
+    finding_criteria:
+      status_codes: [200, 201, 204]
+      description: "Method override bypasses function-level authorization"
+
+  - id: "API5-003"
+    name: "BFLA - Apex ExecuteAnonymous Direct Execution"
+    owasp_mapping:
+      category: "API5:2023"
+      name: "Broken Function Level Authorization"
+    applicable_categories:
+      - "admin_operations"
+      - "business_logic"
+    severity: "Critical"
+    mutation_type: "method_change"
+    payloads:
+      description: "Attempt to execute arbitrary Apex via the executeAnonymous tooling endpoint"
+      method_sequence: ["POST"]
+      body_injections:
+        - "System.debug('Unauthorized execution');"
+    expected_secure_behavior: "401 or 403 (Insufficient Privileges)"
+    finding_criteria:
+      status_codes: [200]
+      response_must_contain:
+        - '"success": true'
+        - '"compiled": true'
+      description: "Non-admin user successfully executed anonymous Apex code"
+
+  # ===========================================================================
+  # API6:2023 - Unrestricted Access to Sensitive Business Flows
+  # ===========================================================================
+  - id: "API6-001"
+    name: "Business Flow Bypass - Unauthorized State Change"
+    owasp_mapping:
+      category: "API6:2023"
+      name: "Unrestricted Access to Sensitive Business Flows"
+    applicable_categories:
+      - "business_logic"
+    severity: "High"
+    mutation_type: "business_flow_bypass"
+    payloads:
+      description: "Test if user can trigger destructive or state-changing business flows they shouldn't have access to"
+      state_change_actions:
+        - "Approve"
+        - "Delete"
+        - "Submit"
+        - "Close"
+        - "Archive"
+        - "Deactivate"
+    expected_secure_behavior: "403 Forbidden or workflow validation error"
+    finding_criteria:
+      status_codes: [200, 201, 204]
+      description: "User triggered unauthorized state change in business flow"
+    context_requirement: "vision_llm_detected_state_change == true"
+
+  - id: "API6-002"
+    name: "Business Flow Bypass - Skipped Approval Workflow"
+    owasp_mapping:
+      category: "API6:2023"
+      name: "Unrestricted Access to Sensitive Business Flows"
+    applicable_categories:
+      - "business_logic"
+    severity: "High"
+    mutation_type: "business_flow_bypass"
+    payloads:
+      description: "Attempt to bypass approval workflows by calling endpoints out of order"
+      bypass_sequences:
+        - skip_approval: true
+        - skip_validation: true
+        - direct_state_change: true
+    expected_secure_behavior: "Workflow enforcement server-side"
+    finding_criteria:
+      status_codes: [200, 201, 204]
+      description: "Business flow bypasses approval workflow enforcement"
+    context_requirement: "vision_llm_detected_state_change == true"
 
   # ===========================================================================
   # API8:2023 - Security Misconfiguration
@@ -401,15 +509,16 @@ test_cases:
       description: "Deprecated API versions still accessible"
 
   # ===========================================================================
-  # API10:2023 - Unsafe Consumption of APIs
+  # API7:2023 - Server Side Request Forgery (SSRF)
   # ===========================================================================
-  - id: "API10-001"
-    name: "Unsafe Consumption - SSRF via External API Call"
+  - id: "API7-001"
+    name: "SSRF - Internal Network Scan via API Parameter"
     owasp_mapping:
-      category: "API10:2023"
-      name: "Unsafe Consumption of APIs"
+      category: "API7:2023"
+      name: "Server Side Request Forgery"
     applicable_categories:
       - "business_logic"
+      - "data_query"
     severity: "High"
     mutation_type: "ssrf_injection"
     payloads:
@@ -419,11 +528,15 @@ test_cases:
         - "http://127.0.0.1"
         - "file:///etc/passwd"
         - "http://[::1]"
+        - "http://0177.0.0.1"
+        - "http://0x7f000001"
       injection_fields:
         - "url"
         - "website"
         - "callback_url"
         - "redirect_url"
+        - "image_url"
+        - "document_url"
     expected_secure_behavior: "Request is blocked or URL is sanitized"
     finding_criteria:
       status_codes: [200, 201, 202]
@@ -431,4 +544,33 @@ test_cases:
         - "ami-id"
         - "instance-id"
         - "root:x:0:0"
+        - "iam"
+        - "security-credentials"
       description: "Server makes requests to internal/private URLs (SSRF)"
+    context_requirement: "has_url_parameter == true"
+
+  # ===========================================================================
+  # API10:2023 - Unsafe Consumption of APIs
+  # ===========================================================================
+  - id: "API10-001"
+    name: "Unsafe Consumption - Unvalidated External API Call"
+    owasp_mapping:
+      category: "API10:2023"
+      name: "Unsafe Consumption of APIs"
+    applicable_categories:
+      - "business_logic"
+    severity: "High"
+    mutation_type: "ssrf_injection"
+    payloads:
+      description: "Test if endpoint blindly follows external URLs without validation"
+      ssrf_targets:
+        - "https://httpbin.org/get"
+        - "https://evil.com/callback"
+      injection_fields:
+        - "url"
+        - "website"
+        - "callback_url"
+    expected_secure_behavior: "URL validation, allowlisting, or request blocking"
+    finding_criteria:
+      status_codes: [200, 201, 202]
+      description: "Endpoint makes unvalidated external API calls"

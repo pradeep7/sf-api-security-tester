@@ -211,6 +211,7 @@ def main() -> int:
             skip_explore=args.skip_explore,
             role_compare=args.role_compare,
             manual_auth=args.manual_auth,
+            target_url=args.target,
         )
         orchestrator.setup()
 

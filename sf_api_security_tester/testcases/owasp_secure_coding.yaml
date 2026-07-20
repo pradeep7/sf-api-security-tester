@@ -1,19 +1,30 @@
 # =============================================================================
-# OWASP Secure Coding Guidelines - Test Case Definitions
+# OWASP Secure Coding Practices Quick Reference Guide (v2) - Test Case Definitions
 # =============================================================================
-# Covers: Input Validation, Output Encoding, Data Protection, Error Handling,
-#         Authentication, Session Management, Access Control, Cryptography,
-#         Data Storage, Communication, Business Logic
+# Official 13 categories:
+#   SCP-01: Input Validation
+#   SCP-02: Output Encoding
+#   SCP-03: Authentication
+#   SCP-04: Session Management
+#   SCP-05: Access Control
+#   SCP-06: Cryptographic Practices
+#   SCP-07: Error Handling and Logging
+#   SCP-08: Data Protection and Privacy
+#   SCP-09: Communications Security
+#   SCP-10: System Configuration
+#   SCP-11: Database Security
+#   SCP-12: File Management
+#   SCP-13: Memory Management
 
 test_cases:
 
   # ===========================================================================
   # Input Validation
   # ===========================================================================
-  - id: "SCG-IV-001"
+  - id: "SCP-01-001"
     name: "Input Validation - SQL/NoSQL Injection via Query Parameter"
     owasp_mapping:
-      category: "SCG-InputValidation"
+      category: "SCP-01"
       name: "Input Validation"
     applicable_categories:
       - "data_query"
@@ -36,10 +47,10 @@ test_cases:
         - "totalSize"
       description: "Query accepts injection payloads without validation"
 
-  - id: "SCG-IV-002"
-    name: "Input Validation - XSS via API Response"
+  - id: "SCP-02-001"
+    name: "Output Encoding - XSS via API Response"
     owasp_mapping:
-      category: "SCG-OutputEncoding"
+      category: "SCP-02"
       name: "Output Encoding"
     applicable_categories:
       - "user_data_crud"
@@ -69,10 +80,10 @@ test_cases:
         - 'javascript:'
       description: "API accepts or reflects XSS payloads without encoding"
 
-  - id: "SCG-IV-003"
+  - id: "SCP-01-002"
     name: "Input Validation - Buffer Overflow via Large Payload"
     owasp_mapping:
-      category: "SCG-InputValidation"
+      category: "SCP-01"
       name: "Input Validation"
     applicable_categories:
       - "user_data_crud"
@@ -90,10 +101,10 @@ test_cases:
       status_codes: [200, 201, 204]
       description: "Endpoint accepts oversized payloads"
 
-  - id: "SCG-IV-004"
+  - id: "SCP-01-003"
     name: "Input Validation - Special Characters in SOQL"
     owasp_mapping:
-      category: "SCG-InputValidation"
+      category: "SCP-01"
       name: "Input Validation"
     applicable_categories:
       - "data_query"
@@ -119,10 +130,10 @@ test_cases:
   # ===========================================================================
   # Output Encoding / Stored XSS
   # ===========================================================================
-  - id: "SCG-OE-001"
+  - id: "SCP-02-002"
     name: "Output Encoding - Stored XSS via Create"
     owasp_mapping:
-      category: "SCG-OutputEncoding"
+      category: "SCP-02"
       name: "Output Encoding"
     applicable_categories:
       - "user_data_crud"
@@ -148,11 +159,11 @@ test_cases:
   # ===========================================================================
   # Data Protection / PII Exposure
   # ===========================================================================
-  - id: "SCG-DP-001"
-    name: "Data Protection - PII in API Response"
+  - id: "SCP-08-001"
+    name: "Data Protection and Privacy - PII in API Response"
     owasp_mapping:
-      category: "SCG-DataProtection"
-      name: "Data Protection"
+      category: "SCP-08"
+      name: "Data Protection and Privacy"
     applicable_categories:
       - "data_query"
       - "user_data_crud"
@@ -176,11 +187,11 @@ test_cases:
     finding_criteria:
       description: "PII data exposed without field-level security enforcement"
 
-  - id: "SCG-DP-002"
-    name: "Data Protection - Sensitive Data in Logs/Headers"
+  - id: "SCP-08-002"
+    name: "Data Protection and Privacy - Sensitive Data in Logs/Headers"
     owasp_mapping:
-      category: "SCG-DataProtection"
-      name: "Data Protection"
+      category: "SCP-08"
+      name: "Data Protection and Privacy"
     applicable_categories:
       - "authentication"
       - "data_query"
@@ -200,10 +211,10 @@ test_cases:
   # ===========================================================================
   # Authentication & Session Management
   # ===========================================================================
-  - id: "SCG-AUTH-001"
-    name: "Auth - Token in URL Parameter"
+  - id: "SCP-03-001"
+    name: "Authentication - Token in URL Parameter"
     owasp_mapping:
-      category: "SCG-Authentication"
+      category: "SCP-03"
       name: "Authentication"
     applicable_categories:
       - "authentication"
@@ -220,10 +231,10 @@ test_cases:
       status_codes: [200, 302]
       description: "Authentication token accepted via URL parameter"
 
-  - id: "SCG-AUTH-002"
-    name: "Auth - Weak Password Policy (Registration)"
+  - id: "SCP-03-002"
+    name: "Authentication - Weak Password Policy (Registration)"
     owasp_mapping:
-      category: "SCG-Authentication"
+      category: "SCP-03"
       name: "Authentication"
     applicable_categories:
       - "authentication"
@@ -245,10 +256,10 @@ test_cases:
   # ===========================================================================
   # Access Control
   # ===========================================================================
-  - id: "SCG-AC-001"
+  - id: "SCP-05-001"
     name: "Access Control - Horizontal Privilege Escalation"
     owasp_mapping:
-      category: "SCG-AccessControl"
+      category: "SCP-05"
       name: "Access Control"
     applicable_categories:
       - "user_data_crud"
@@ -267,10 +278,10 @@ test_cases:
       status_codes: [200, 201]
       description: "Horizontal privilege escalation possible"
 
-  - id: "SCG-AC-002"
+  - id: "SCP-05-002"
     name: "Access Control - Vertical Privilege Escalation"
     owasp_mapping:
-      category: "SCG-AccessControl"
+      category: "SCP-05"
       name: "Access Control"
     applicable_categories:
       - "admin_operations"
@@ -289,11 +300,11 @@ test_cases:
   # ===========================================================================
   # Error Handling
   # ===========================================================================
-  - id: "SCG-EH-001"
-    name: "Error Handling - Verbose Error Messages"
+  - id: "SCP-07-001"
+    name: "Error Handling and Logging - Verbose Error Messages"
     owasp_mapping:
-      category: "SCG-ErrorHandling"
-      name: "Error Handling"
+      category: "SCP-07"
+      name: "Error Handling and Logging"
     applicable_categories:
       - "authentication"
       - "data_query"
@@ -328,11 +339,11 @@ test_cases:
   # ===========================================================================
   # Business Logic
   # ===========================================================================
-  - id: "SCG-BL-001"
-    name: "Business Logic - Race Condition in Balance Update"
+  - id: "SCP-04-001"
+    name: "Session Management - Race Condition in Balance Update"
     owasp_mapping:
-      category: "SCG-BusinessLogic"
-      name: "Business Logic"
+      category: "SCP-04"
+      name: "Session Management"
     applicable_categories:
       - "business_logic"
     severity: "High"
@@ -346,11 +357,11 @@ test_cases:
       status_codes: [200, 201]
       description: "Race condition allows double-spending or data corruption"
 
-  - id: "SCG-BL-002"
-    name: "Business Logic - Negative Quantity/Amount Abuse"
+  - id: "SCP-04-002"
+    name: "Session Management - Negative Quantity/Amount Abuse"
     owasp_mapping:
-      category: "SCG-BusinessLogic"
-      name: "Business Logic"
+      category: "SCP-04"
+      name: "Session Management"
     applicable_categories:
       - "business_logic"
     severity: "Medium"
@@ -375,11 +386,11 @@ test_cases:
   # ===========================================================================
   # Cryptography
   # ===========================================================================
-  - id: "SCG-CRYPTO-001"
-    name: "Cryptography - TLS Version Check"
+  - id: "SCP-06-001"
+    name: "Cryptographic Practices - TLS Version Check"
     owasp_mapping:
-      category: "SCG-Cryptography"
-      name: "Cryptography"
+      category: "SCP-06"
+      name: "Cryptographic Practices"
     applicable_categories:
       - "authentication"
       - "data_query"
@@ -393,11 +404,11 @@ test_cases:
     finding_criteria:
       description: "Server accepts TLS 1.0 or 1.1 connections"
 
-  - id: "SCG-CRYPTO-002"
-    name: "Cryptography - Weak Cipher Suites"
+  - id: "SCP-06-002"
+    name: "Cryptographic Practices - Weak Cipher Suites"
     owasp_mapping:
-      category: "SCG-Cryptography"
-      name: "Cryptography"
+      category: "SCP-06"
+      name: "Cryptographic Practices"
     applicable_categories:
       - "authentication"
     severity: "Low"
@@ -415,13 +426,13 @@ test_cases:
       description: "Server accepts weak cipher suites"
 
   # ===========================================================================
-  # SSRF (Cross-cutting)
+  # SSRF (Cross-cutting — aligns with API7 + A10)
   # ===========================================================================
-  - id: "SCG-SSRF-001"
-    name: "SSRF - Internal Network Scan via API Parameter"
+  - id: "SCP-09-001"
+    name: "Communications Security - SSRF via API Parameter"
     owasp_mapping:
-      category: "SCG-InputValidation"
-      name: "Input Validation"
+      category: "SCP-09"
+      name: "Communications Security"
     applicable_categories:
       - "business_logic"
     severity: "High"
@@ -451,3 +462,165 @@ test_cases:
         - "iam"
         - "security-credentials"
       description: "SSRF allows server to access internal resources"
+
+  # ===========================================================================
+  # SCP-10: System Configuration
+  # ===========================================================================
+  - id: "SCP-10-001"
+    name: "System Configuration - Default Credentials and Settings"
+    owasp_mapping:
+      category: "SCP-10"
+      name: "System Configuration"
+    applicable_categories:
+      - "authentication"
+      - "admin_operations"
+    severity: "Medium"
+    mutation_type: "auth_enumeration"
+    payloads:
+      description: "Test for default credentials and insecure system configurations"
+      weak_passwords:
+        - "admin"
+        - "password"
+        - "salesforce"
+        - "changeme"
+    expected_secure_behavior: "Default credentials rejected; secure configuration enforced"
+    finding_criteria:
+      status_codes: [200, 201]
+      description: "System accepts default or weak credentials"
+
+  - id: "SCP-10-002"
+    name: "System Configuration - Unnecessary Services and Features"
+    owasp_mapping:
+      category: "SCP-10"
+      name: "System Configuration"
+    applicable_categories:
+      - "admin_operations"
+      - "user_data_crud"
+    severity: "Low"
+    mutation_type: "version_enumeration"
+    payloads:
+      description: "Check for unnecessary API versions or deprecated endpoints still accessible"
+      version_swaps:
+        - "v30.0"
+        - "v35.0"
+        - "v40.0"
+    expected_secure_behavior: "Deprecated versions return 404 or redirect"
+    finding_criteria:
+      status_codes: [200, 201]
+      description: "Deprecated API versions or unnecessary services still accessible"
+
+  # ===========================================================================
+  # SCP-11: Database Security
+  # ===========================================================================
+  - id: "SCP-11-001"
+    name: "Database Security - SOQL Injection Data Extraction"
+    owasp_mapping:
+      category: "SCP-11"
+      name: "Database Security"
+    applicable_categories:
+      - "data_query"
+    severity: "Critical"
+    mutation_type: "soql_injection"
+    payloads:
+      soql_payloads:
+        - "' OR '1'='1"
+        - "' UNION SELECT Id,Name,Email FROM User--"
+        - "'; SELECT * FROM User WHERE 1=1--"
+    expected_secure_behavior: "SOQL injection blocked; query returns error or empty results"
+    finding_criteria:
+      status_codes: [200]
+      response_must_not_contain:
+        - "records"
+        - "attributes"
+        - "totalSize"
+      description: "SOQL injection bypasses database security controls"
+
+  - id: "SCP-11-002"
+    name: "Database Security - Excessive Data Exposure via Query"
+    owasp_mapping:
+      category: "SCP-11"
+      name: "Database Security"
+    applicable_categories:
+      - "data_query"
+      - "user_data_crud"
+    severity: "High"
+    mutation_type: "resource_exhaustion"
+    payloads:
+      description: "Test if queries can extract excessive data beyond authorization"
+      soql_modifications:
+        - "SELECT Id,Name,Email,Phone,Title FROM Contact LIMIT 10000"
+    expected_secure_behavior: "Query limited by FLS/CLS; excessive data blocked"
+    finding_criteria:
+      status_codes: [200]
+      description: "Query returns excessive data beyond authorized scope"
+
+  # ===========================================================================
+  # SCP-12: File Management
+  # ===========================================================================
+  - id: "SCP-12-001"
+    name: "File Management - Path Traversal via File Upload"
+    owasp_mapping:
+      category: "SCP-12"
+      name: "File Management"
+    applicable_categories:
+      - "file_upload"
+    severity: "High"
+    mutation_type: "path_traversal"
+    payloads:
+      traversal_payloads:
+        - "../../../etc/passwd"
+        - "....//....//....//etc/passwd"
+        - "%2e%2e%2f%2e%2e%2f%2e%2e%2fetc%2fpasswd"
+      injection_points:
+        - "file_name_param"
+    expected_secure_behavior: "Path traversal blocked; file access denied"
+    finding_criteria:
+      status_codes: [200]
+      response_must_not_contain:
+        - "root:x:0:0"
+      description: "File upload allows path traversal to access system files"
+
+  - id: "SCP-12-002"
+    name: "File Management - Unrestricted File Type Upload"
+    owasp_mapping:
+      category: "SCP-12"
+      name: "File Management"
+    applicable_categories:
+      - "file_upload"
+    severity: "Medium"
+    mutation_type: "path_traversal"
+    payloads:
+      description: "Test if dangerous file types can be uploaded"
+      traversal_payloads:
+        - "test.exe"
+        - "test.php"
+        - "test.jsp"
+      injection_points:
+        - "file_name_param"
+    expected_secure_behavior: "Dangerous file types rejected by validation"
+    finding_criteria:
+      status_codes: [200, 201]
+      description: "System accepts dangerous file types without validation"
+
+  # ===========================================================================
+  # SCP-13: Memory Management
+  # ===========================================================================
+  - id: "SCP-13-001"
+    name: "Memory Management - Buffer Overflow via Oversized Payload"
+    owasp_mapping:
+      category: "SCP-13"
+      name: "Memory Management"
+    applicable_categories:
+      - "user_data_crud"
+      - "data_query"
+    severity: "Medium"
+    mutation_type: "resource_exhaustion"
+    payloads:
+      description: "Send extremely large payloads to test buffer handling"
+      large_payloads:
+        - field_length: 100000
+        - field_length: 500000
+    expected_secure_behavior: "413 or 400 with size limit; no memory corruption"
+    finding_criteria:
+      status_codes: [200, 201, 204]
+      description: "System accepts oversized payloads without proper memory management"

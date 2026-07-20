@@ -310,12 +310,34 @@ class RiskSurface(BaseModel):
     severity: Severity = Severity.MEDIUM
 
 
+class WorkflowStep(BaseModel):
+    """A single step in a multi-step business workflow."""
+    step_number: int
+    url: str
+    action_description: str = ""  # e.g., "Enter Shipping Info"
+    state_parameters: list[str] = Field(default_factory=list)  # Hidden fields, tokens, flow IDs
+    page_id: str = ""  # Reference to PageSnapshot.id
+
+
+class WorkflowModel(BaseModel):
+    """A complete multi-step business workflow (state machine)."""
+    workflow_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
+    name: str = ""
+    steps: list[WorkflowStep] = Field(default_factory=list)
+    entry_point: str = ""  # URL of first step
+    exit_point: str = ""   # URL of final step
+    detected_via: str = ""  # heuristic | vision_llm | navigation_pattern
+    confidence: float = 0.0
+    api6_test_results: dict[str, str] = Field(default_factory=dict)  # test_id -> PASS|FAIL|NA
+
+
 class FeatureInventory(BaseModel):
     """Aggregated risk surface from exploration."""
     pages_by_category: dict[str, list[str]] = Field(default_factory=dict)
     all_input_fields: list[InputFieldInfo] = Field(default_factory=list)
     risk_surfaces: list[RiskSurface] = Field(default_factory=list)
     role_differences: dict[str, Any] = Field(default_factory=dict)
+    workflows: list[WorkflowModel] = Field(default_factory=list)
     total_risks: int = 0
     high_risk_count: int = 0
     medium_risk_count: int = 0
