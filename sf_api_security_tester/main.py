@@ -92,6 +92,11 @@ Examples:
         action="store_true",
         help="Skip Phase 0 autonomous exploration — rely purely on HAR files (V2.x behavior)",
     )
+    parser.add_argument(
+        "--role-compare",
+        action="store_true",
+        help="Run exploration with multiple credential sets to find role-based access differences",
+    )
 
     return parser.parse_args()
 
@@ -152,6 +157,7 @@ def main() -> int:
             har_files=har_files,
             explore_only=args.explore_only,
             skip_explore=args.skip_explore,
+            role_compare=args.role_compare,
         )
         orchestrator.setup()
 

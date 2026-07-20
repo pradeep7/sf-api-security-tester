@@ -29,19 +29,28 @@ class SmartTestPlanner:
     _SQLI_PROBE = "SF_SQLI_PROBE_"
     _SSRF_PROBE = "SF_SSRF_PROBE_"
 
+    # Severity ordering for priority sorting
+    _SEVERITY_ORDER = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
+
     def plan(
         self,
         inventory: FeatureInventory,
         site_map: SiteMap,
     ) -> TestPlan:
-        """Generate a TestPlan from the feature inventory."""
+        """Generate a TestPlan from the feature inventory, sorted by risk severity."""
         tests: list[PlannedTest] = []
         coverage: dict[str, int] = {}
 
         # Build a page lookup
         page_by_id = {p.id: p for p in site_map.pages}
 
-        for risk in inventory.risk_surfaces:
+        # Sort risk surfaces by severity (Critical first)
+        sorted_risks = sorted(
+            inventory.risk_surfaces,
+            key=lambda r: self._SEVERITY_ORDER.get(r.severity.value, 99),
+        )
+
+        for risk in sorted_risks:
             for test_type in risk.recommended_tests:
                 planned = self._generate_tests_for_risk(
                     risk, test_type, page_by_id
@@ -152,6 +161,21 @@ class SmartTestPlanner:
                 payload=payload,
                 http_method="POST",
                 description=f"Safe SSRF probe in field '{field.label or field.name}'",
+            )
+
+        elif risk_type == "bola":
+            # BOLA probe: use a clearly fake Salesforce ID
+            payload = "000000000000000"
+            return PlannedTest(
+                test_type="safe_probe",
+                risk_type="bola",
+                target_page_id=page.id,
+                target_url=page.url,
+                target_field=field.name,
+                payload_category="bola_id_swap",
+                payload=payload,
+                http_method="GET",
+                description=f"Safe BOLA probe with fake ID on page '{page.title or page.url}'",
             )
 
         return None

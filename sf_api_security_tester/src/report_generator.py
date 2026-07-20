@@ -792,10 +792,52 @@ footer {
     {% endif %}
 
     {% if site_map.pages %}
-    <h3 style="font-size:14px;color:var(--text-secondary);margin:16px 0 8px;">Discovered Pages</h3>
+    <h3 style="font-size:14px;color:var(--text-secondary);margin:16px 0 8px;">Discovered Pages (Tree View)</h3>
+    <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:12px;font-family:monospace;font-size:12px;max-height:600px;overflow-y:auto;">
+    {# Build tree: group pages by parent_url #}
+    {% set ns = namespace(tree={}, node_id=0) %}
+    {% for page in site_map.pages %}
+        {% set parent = page.parent_url or 'root' %}
+        {% if parent not in ns.tree %}
+            {% set _ = ns.tree.update({parent: []}) %}
+        {% endif %}
+        {% set _ = ns.tree[parent].append(page) %}
+    {% endfor %}
+
+    {# Render tree recursively with collapsible nodes #}
+    {% macro render_node(parent_url, depth) %}
+        {% if parent_url in ns.tree %}
+            {% for page in ns.tree[parent_url] %}
+                {% set ns.node_id = ns.node_id + 1 %}
+                {% set has_children = page.url in ns.tree %}
+                <div style="padding-left:{{ depth * 20 }}px;margin:2px 0;">
+                    {% if has_children %}
+                    <span class="tree-toggle" id="tree-btn-{{ ns.node_id }}" onclick="toggleTreeNode('{{ ns.node_id }}')" style="cursor:pointer;color:var(--accent-blue);font-size:10px;display:inline-block;width:14px;text-align:center;">&#x25BC;</span>
+                    {% else %}
+                    <span style="display:inline-block;width:14px;text-align:center;color:var(--text-muted);font-size:10px;">&#x25CF;</span>
+                    {% endif %}
+                    <span class="inv-cat-badge inv-cat-{{ page.page_category }}" style="font-size:9px;">{{ page.page_category }}</span>
+                    <span style="color:var(--text-primary);">{{ page.title[:40] or page.url[:50] }}</span>
+                    <span style="color:var(--text-muted);font-size:10px;">({{ page.input_fields | length }} inputs)</span>
+                    {% if page.sensitive_data_visible %}<span class="sensitive-badge" style="font-size:8px;">SENSITIVE</span>{% endif %}
+                </div>
+                {% if has_children %}
+                <div id="tree-children-{{ ns.node_id }}" style="padding-left:{{ depth * 20 + 14 }}px;border-left:1px dashed var(--border);margin-left:{{ depth * 20 + 6 }}px;">
+                    {{ render_node(page.url, depth + 1) }}
+                </div>
+                {% endif %}
+            {% endfor %}
+        {% endif %}
+    {% endmacro %}
+
+    {{ render_node('root', 0) }}
+    </div>
+
+    <h3 style="font-size:14px;color:var(--text-secondary);margin:16px 0 8px;">Discovered Pages (Table View)</h3>
     <table class="inventory-table">
         <thead>
             <tr>
+                <th>Depth</th>
                 <th>URL</th>
                 <th>Category</th>
                 <th>Purpose</th>
@@ -806,6 +848,7 @@ footer {
         <tbody>
         {% for page in site_map.pages[:50] %}
             <tr>
+                <td style="text-align:center;">{{ page.depth }}</td>
                 <td class="endpoint-url" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ page.url[:80] }}</td>
                 <td><span class="inv-cat-badge inv-cat-{{ page.page_category }}">{{ page.page_category }}</span></td>
                 <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ page.page_purpose[:60] }}</td>
@@ -814,10 +857,104 @@ footer {
             </tr>
         {% endfor %}
         {% if site_map.pages | length > 50 %}
-            <tr><td colspan="5" style="text-align:center;color:var(--text-muted);">... and {{ site_map.pages | length - 50 }} more pages</td></tr>
+            <tr><td colspan="6" style="text-align:center;color:var(--text-muted);">... and {{ site_map.pages | length - 50 }} more pages</td></tr>
         {% endif %}
         </tbody>
     </table>
+    {% endif %}
+</div>
+{% endif %}
+
+<!-- Role Comparison Analysis (V3.0) -->
+{% if feature_inventory and feature_inventory.role_differences and feature_inventory.role_differences.comparison %}
+<h2 class="section-title">Role Comparison Analysis</h2>
+<div class="inventory-section">
+    <div class="inventory-grid">
+        {% set comp = feature_inventory.role_differences.comparison %}
+        {% set role_names = [] %}
+        {% for key in feature_inventory.role_differences.keys() %}
+            {% if key != 'comparison' %}
+                {% set _ = role_names.append(key) %}
+            {% endif %}
+        {% endfor %}
+
+        {% if role_names | length >= 1 %}
+        <div class="inventory-stat">
+            <span class="num">{{ feature_inventory.role_differences[role_names[0]].total_pages }}</span>
+            <span class="lbl">{{ role_names[0] }} Pages</span>
+        </div>
+        {% endif %}
+        {% if role_names | length >= 2 %}
+        <div class="inventory-stat">
+            <span class="num">{{ feature_inventory.role_differences[role_names[1]].total_pages }}</span>
+            <span class="lbl">{{ role_names[1] }} Pages</span>
+        </div>
+        {% endif %}
+        <div class="inventory-stat">
+            <span class="num">{{ comp.pages_visible_to_both }}</span>
+            <span class="lbl">Shared Pages</span>
+        </div>
+        <div class="inventory-stat">
+            <span class="num" style="color:var(--accent-red);">{{ comp.access_difference_count }}</span>
+            <span class="lbl">Access Differences</span>
+        </div>
+    </div>
+
+    <table class="inventory-table">
+        <thead>
+            <tr>
+                <th>Page / Feature</th>
+                {% for rn in role_names %}
+                <th>{{ rn | title }}</th>
+                {% endfor %}
+                <th>Risk Assessment</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for page in site_map.pages[:40] %}
+            <tr>
+                <td class="endpoint-url" style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ page.url[:70] }}</td>
+                {% for rn in role_names %}
+                <td>
+                    {% set role_pages = [] %}
+                    {% for p in site_map.pages %}
+                        {% if feature_inventory.role_differences.get(rn, {}).get('total_pages', 0) > 0 %}
+                            {# Simple heuristic: page exists in this role's site map if it was discovered #}
+                            &#x2713;
+                        {% endif %}
+                    {% endfor %}
+                </td>
+                {% endfor %}
+                <td>
+                    {% if page.page_category == 'admin' %}
+                    <span class="risk-tag risk-sqli">ADMIN ACCESS</span>
+                    {% elif page.sensitive_data_visible %}
+                    <span class="risk-tag risk-xss">SENSITIVE DATA</span>
+                    {% else %}
+                    <span class="risk-tag risk-none">REVIEW</span>
+                    {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+
+    {% if comp.pages_only_visible_to_0 is defined and comp.pages_only_visible_to_0 %}
+    <h3 style="font-size:13px;color:var(--text-secondary);margin:16px 0 8px;">Pages Only Visible to First Role</h3>
+    <ul style="font-size:12px;color:var(--text-primary);list-style:none;padding:0;">
+    {% for url in comp.pages_only_visible_to_0[:20] %}
+        <li style="padding:4px 0;border-bottom:1px solid var(--border);"><span class="inv-cat-badge inv-cat-admin" style="font-size:9px;">EXCLUSIVE</span> {{ url[:80] }}</li>
+    {% endfor %}
+    </ul>
+    {% endif %}
+
+    {% if comp.pages_only_visible_to_1 is defined and comp.pages_only_visible_to_1 %}
+    <h3 style="font-size:13px;color:var(--text-secondary);margin:16px 0 8px;">Pages Only Visible to Second Role</h3>
+    <ul style="font-size:12px;color:var(--text-primary);list-style:none;padding:0;">
+    {% for url in comp.pages_only_visible_to_1[:20] %}
+        <li style="padding:4px 0;border-bottom:1px solid var(--border);"><span class="inv-cat-badge inv-cat-list_view" style="font-size:9px;">EXCLUSIVE</span> {{ url[:80] }}</li>
+    {% endfor %}
+    </ul>
     {% endif %}
 </div>
 {% endif %}
@@ -1048,6 +1185,19 @@ function toggleCompliance(stdKey) {
     } else {
         el.style.display = 'none';
         btn.classList.remove('open');
+    }
+}
+
+function toggleTreeNode(nodeId) {
+    const children = document.getElementById('tree-children-' + nodeId);
+    const btn = document.getElementById('tree-btn-' + nodeId);
+    if (!children) return;
+    if (children.style.display === 'none') {
+        children.style.display = 'block';
+        btn.innerHTML = '&#x25BC;';
+    } else {
+        children.style.display = 'none';
+        btn.innerHTML = '&#x25B6;';
     }
 }
 </script>

@@ -61,6 +61,7 @@ class Orchestrator:
         har_files: list[str | Path] | None = None,
         explore_only: bool = False,
         skip_explore: bool = False,
+        role_compare: bool = False,
     ):
         self.config_path = Path(config_path)
         self.config: dict[str, Any] = {}
@@ -68,6 +69,7 @@ class Orchestrator:
         self.har_files = har_files or []
         self.explore_only = explore_only
         self.skip_explore = skip_explore
+        self.role_compare = role_compare
 
         # V2.x Components
         self.classifier: EndpointClassifier | None = None
@@ -363,10 +365,87 @@ class Orchestrator:
                     self.site_map.categories[cat] = self.site_map.categories.get(cat, 0) + count
                 self.site_map.sensitive_pages.extend(site_map.sensitive_pages)
 
+        # Role comparison: explore with multiple roles and diff
+        if self.role_compare:
+            self._run_role_comparison(portals_config)
+
         if self.site_map:
             console.print(
                 f"  [green]Discovered {self.site_map.total_pages} pages, "
                 f"{self.site_map.total_input_fields} input fields[/green]"
+            )
+
+    def _run_role_comparison(self, portals_config: dict):
+        """Explore with multiple roles and compare visible features."""
+        role_cfg = self.config.get("role_comparison", {})
+        roles = role_cfg.get("roles", [])
+        role_creds = self.credentials.get("role_comparison", {})
+
+        if len(roles) < 2 or not role_creds:
+            logger.info("Role comparison skipped: need >=2 roles in config")
+            return
+
+        console.print(f"  [blue]Running role comparison with {len(roles)} roles...[/blue]")
+
+        role_site_maps: dict[str, SiteMap] = {}
+
+        for role in roles:
+            role_name = role.get("name", "unknown")
+            cred_key = role.get("credentials_key", "")
+            creds = role_creds.get(cred_key, {})
+
+            if not creds.get("username"):
+                logger.warning(f"Role '{role_name}' has no credentials — skipping")
+                continue
+
+            console.print(f"  [blue]  Exploring as {role_name}...[/blue]")
+
+            # Use first portal URL for role comparison
+            for portal_key, portal_cfg in portals_config.items():
+                portal_url = portal_cfg.get("base_url", "")
+                if portal_url:
+                    explorer = AutonomousExplorer(self.config)
+                    site_map = explorer.explore(portal_url, creds)
+                    role_site_maps[role_name] = site_map
+                    break
+
+        # Compare role site maps
+        if len(role_site_maps) >= 2:
+            role_names = list(role_site_maps.keys())
+            base_role = role_names[0]
+            compare_role = role_names[1]
+
+            base_urls = {p.url for p in role_site_maps[base_role].pages}
+            compare_urls = {p.url for p in role_site_maps[compare_role].pages}
+
+            base_only = base_urls - compare_urls
+            compare_only = compare_urls - base_urls
+            common = base_urls & compare_urls
+
+            # Build role differences
+            role_diffs = {}
+            for rn in role_names:
+                role_diffs[rn] = {
+                    "total_pages": len(role_site_maps[rn].pages),
+                    "total_inputs": role_site_maps[rn].total_input_fields,
+                    "categories": role_site_maps[rn].categories,
+                }
+
+            role_diffs["comparison"] = {
+                f"pages_only_visible_to_{base_role}": list(base_only),
+                f"pages_only_visible_to_{compare_role}": list(compare_only),
+                "pages_visible_to_both": len(common),
+                "access_difference_count": len(base_only) + len(compare_only),
+            }
+
+            # Store for report
+            if self.feature_inventory:
+                self.feature_inventory.role_differences = role_diffs
+
+            console.print(
+                f"  [green]Role comparison: {len(base_only)} pages only for {base_role}, "
+                f"{len(compare_only)} only for {compare_role}, "
+                f"{len(common)} shared[/green]"
             )
 
     # ------------------------------------------------------------------

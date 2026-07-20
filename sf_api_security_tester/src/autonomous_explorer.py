@@ -20,7 +20,7 @@ from urllib.parse import urljoin, urlparse
 
 from loguru import logger
 
-from .models import InputFieldInfo, PageSnapshot, SiteMap
+from .models import AuditEvent, InputFieldInfo, PageSnapshot, SiteMap
 
 # ---------------------------------------------------------------------------
 # Vision LLM prompt for page analysis
@@ -32,11 +32,15 @@ Return a JSON object describing the page:
 {
   "page_purpose": "<1-sentence description of what this page does>",
   "page_category": "dashboard|list_view|record_detail|form|settings|admin|login|other",
+  "features": ["list of functional capabilities on this page"],
   "input_fields": [
     {"name": "<field name or id>", "type": "text|select|file|richtext|search|textarea|checkbox|radio", "label": "<visible label>", "risk_type": "xss|sqli|ssrf|none"}
   ],
+  "navigation_targets": ["list of visible links/tabs/buttons and where they go"],
   "sensitive_data_visible": <true/false>,
-  "role_indicators": "<describe any role/admin/user indicators visible>"
+  "sensitive_data_description": "<what sensitive data is visible if any>",
+  "role_indicators": "<describe any role/admin/user indicators visible>",
+  "api_endpoints_inferred": ["any API calls you can infer from the page behavior"]
 }
 
 Rules:
@@ -44,6 +48,9 @@ Rules:
 - risk_type: xss if field accepts free text, sqli if it's a search/query field, \
 ssrf if it accepts URLs, none otherwise.
 - sensitive_data_visible: true if PII, internal IDs, API keys, or emails are visible.
+- features: list key capabilities (e.g. "Search contacts", "Create case", "Export data").
+- navigation_targets: list visible navigation elements (e.g. "Tab: Cases", "Button: New Case").
+- api_endpoints_inferred: infer from UI (e.g. "/services/data/v58.0/sobjects/Account").
 - Return ONLY the JSON, no markdown.
 """
 
@@ -86,8 +93,17 @@ class AutonomousExplorer:
         self._visited: set[str] = set()
         self._queue: list[tuple[str, int, str | None]] = []  # (url, depth, parent_url)
         self._snapshots: list[PageSnapshot] = []
+        self._audit_log: list[AuditEvent] = []
         self._output_dir: Path = Path("output/evidence/exploration")
         self._output_dir.mkdir(parents=True, exist_ok=True)
+
+    def _log_audit(self, action: str, target: str = "", result: str = "success", details: str = "", role: str = ""):
+        """Record a structured audit event."""
+        event = AuditEvent(
+            action=action, target=target, result=result, details=details, role=role
+        )
+        self._audit_log.append(event)
+        logger.debug(f"AUDIT: [{action}] {target[:60]} -> {result}")
 
     # ------------------------------------------------------------------
     # Public API
@@ -128,6 +144,7 @@ class AutonomousExplorer:
             categories=self._count_categories(),
             sensitive_pages=[p.url for p in self._snapshots if p.sensitive_data_visible],
             exploration_duration_seconds=round(duration, 1),
+            audit_log=self._audit_log,
         )
 
         logger.info(
@@ -166,26 +183,32 @@ class AutonomousExplorer:
             # Login if credentials provided
             if credentials and credentials.get("username"):
                 await self._login(portal_url, credentials)
+                self._log_audit("login", portal_url, "success", role=credentials.get("username", ""))
 
             # Start BFS from portal URL
             self._queue.append((portal_url, 0, None))
+            self._log_audit("navigate", portal_url, "queued", "BFS root")
 
             while self._queue and len(self._snapshots) < self.max_pages:
                 url, depth, parent_url = self._queue.pop(0)
 
                 if depth > self.max_depth:
+                    self._log_audit("skip", url, "max_depth", f"depth={depth}")
                     continue
                 if self._normalise_url(url) in self._visited:
+                    self._log_audit("skip", url, "already_visited")
                     continue
 
                 snapshot = await self._explore_page(url, depth, parent_url)
                 if snapshot:
                     self._snapshots.append(snapshot)
                     self._visited.add(self._normalise_url(url))
+                    self._log_audit("navigate", url, "success", f"depth={depth}, category={snapshot.page_category}")
 
                     # Discover new links
                     if depth < self.max_depth:
                         new_urls = await self._discover_links(url)
+                        self._log_audit("click", url, "links_found", f"{len(new_urls)} links")
                         for new_url in new_urls:
                             if self._normalise_url(new_url) not in self._visited:
                                 self._queue.append((new_url, depth + 1, url))
@@ -220,22 +243,29 @@ class AutonomousExplorer:
                 safe_name = re.sub(r"[^\w\-]", "_", urlparse(current_url).path)[:40]
                 screenshot_path = self._output_dir / f"page_{depth}_{safe_name}.png"
                 await page.screenshot(path=str(screenshot_path))
+                self._log_audit("screenshot", current_url, "success", str(screenshot_path))
 
                 # Vision LLM analysis (if enabled)
                 analysis = await self._analyse_page_with_llm(
                     str(screenshot_path), dom_summary, current_url
                 )
+                self._log_audit("llm_call", current_url, "success" if analysis else "skipped",
+                                f"fields={len(analysis.get('input_fields', []))}" if analysis else "disabled")
 
                 snapshot = PageSnapshot(
                     url=current_url,
                     title=title,
                     page_purpose=analysis.get("page_purpose", ""),
                     page_category=analysis.get("page_category", "other"),
+                    features=analysis.get("features", []),
                     input_fields=[
                         InputFieldInfo(**f) for f in analysis.get("input_fields", [])
                     ] if analysis.get("input_fields") else input_fields,
+                    navigation_targets=analysis.get("navigation_targets", []),
                     sensitive_data_visible=analysis.get("sensitive_data_visible", False),
+                    sensitive_data_description=analysis.get("sensitive_data_description", ""),
                     role_indicators=analysis.get("role_indicators", ""),
+                    api_endpoints_inferred=analysis.get("api_endpoints_inferred", []),
                     screenshot_path=str(screenshot_path),
                     dom_summary=dom_summary[:_MAX_DOM_CHARS],
                     visible_text=visible_text[:_MAX_VISIBLE_TEXT],
