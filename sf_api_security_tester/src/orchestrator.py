@@ -21,6 +21,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskPr
 from rich.table import Table
 
 from .autonomous_explorer import AutonomousExplorer
+from .dom_xss_auditor import DOMXSSAuditor
 from .endpoint_classifier import EndpointClassifier
 from .evidence_collector import EvidenceCollector
 from .executor import RequestExecutor
@@ -43,6 +44,7 @@ from .models import (
 )
 from .mutation_engine import MutationEngine
 from .report_generator import ReportGenerator
+from .role_manager import RoleManager
 from .safe_executor import SafePayloadExecutor
 from .screenshot_capture import ScreenshotCapture
 from .test_case_engine import TestCaseEngine
@@ -88,6 +90,8 @@ class Orchestrator:
         self.feature_inventory_builder: FeatureInventoryBuilder | None = None
         self.test_planner: SmartTestPlanner | None = None
         self.safe_executor: SafePayloadExecutor | None = None
+        self.dom_xss_auditor: DOMXSSAuditor | None = None
+        self.role_manager: RoleManager | None = None
 
         # V3.0 State
         self.site_map: SiteMap | None = None
@@ -196,6 +200,8 @@ class Orchestrator:
         self.feature_inventory_builder = FeatureInventoryBuilder()
         self.test_planner = SmartTestPlanner()
         self.safe_executor = SafePayloadExecutor(self.config)
+        self.dom_xss_auditor = DOMXSSAuditor(self.config)
+        self.role_manager = RoleManager(self.config)
 
     def run(self) -> TestReport:
         """Execute the full V3.0 security testing pipeline."""
@@ -376,10 +382,10 @@ class Orchestrator:
             )
 
     def _run_role_comparison(self, portals_config: dict):
-        """Explore with multiple roles and compare visible features."""
+        """Explore with multiple roles using RoleManager for isolated sessions."""
         role_cfg = self.config.get("role_comparison", {})
         roles = role_cfg.get("roles", [])
-        role_creds = self.credentials.get("role_comparison", {})
+        role_creds = self.credentials.get("role_comparison", credentials_config={})
 
         if len(roles) < 2 or not role_creds:
             logger.info("Role comparison skipped: need >=2 roles in config")
@@ -387,11 +393,14 @@ class Orchestrator:
 
         console.print(f"  [blue]Running role comparison with {len(roles)} roles...[/blue]")
 
+        # Create isolated sessions via RoleManager
+        sessions = self.role_manager.create_sessions(self.credentials)
+
         role_site_maps: dict[str, SiteMap] = {}
 
         for role in roles:
             role_name = role.get("name", "unknown")
-            cred_key = role.get("credentials_key", "")
+            cred_key = role.get("credentials_key", role_name)
             creds = role_creds.get(cred_key, {})
 
             if not creds.get("username"):
@@ -400,7 +409,7 @@ class Orchestrator:
 
             console.print(f"  [blue]  Exploring as {role_name}...[/blue]")
 
-            # Use first portal URL for role comparison
+            # Use separate AutonomousExplorer per role (isolated browser context)
             for portal_key, portal_cfg in portals_config.items():
                 portal_url = portal_cfg.get("base_url", "")
                 if portal_url:
@@ -408,6 +417,11 @@ class Orchestrator:
                     site_map = explorer.explore(portal_url, creds)
                     role_site_maps[role_name] = site_map
                     break
+
+        # Collect audit logs from all sessions
+        all_audit_logs = self.role_manager.get_all_audit_logs(sessions)
+        if all_audit_logs and self.site_map:
+            self.site_map.audit_log.extend(all_audit_logs)
 
         # Compare role site maps
         if len(role_site_maps) >= 2:
@@ -480,6 +494,39 @@ class Orchestrator:
                 f"  [green]Safe probes: {potential} potential findings "
                 f"from {len(probe_results)} probes[/green]"
             )
+
+        # DOM XSS audit with safe probes
+        if self.site_map and self.dom_xss_auditor and self.dom_xss_auditor.enabled:
+            console.print("  [blue]DOM XSS: Testing input fields with safe probes...[/blue]")
+            try:
+                # Create a temporary browser context for DOM XSS audit
+                import asyncio
+                from playwright.async_api import async_playwright
+
+                async def _run_dom_audit():
+                    pw = await async_playwright().start()
+                    browser = await pw.chromium.launch(headless=True)
+                    context = await browser.new_context(
+                        viewport={"width": 1920, "height": 1080},
+                    )
+                    try:
+                        results = self.dom_xss_auditor.audit_site(self.site_map, context)
+                        return results
+                    finally:
+                        await context.close()
+                        await browser.close()
+                        await pw.stop()
+
+                dom_results = asyncio.run(_run_dom_audit())
+                self.results.extend(dom_results)
+
+                dom_potential = sum(1 for r in dom_results if r.verdict == FindingVerdict.POTENTIAL_FINDING)
+                console.print(
+                    f"  [green]DOM XSS: {dom_potential} potential DOM XSS findings "
+                    f"from {len(dom_results)} probes[/green]"
+                )
+            except Exception as e:
+                logger.error(f"DOM XSS audit failed: {e}")
 
     def _parse_har_files(self):
         """Parse HAR files and extract endpoints."""

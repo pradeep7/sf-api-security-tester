@@ -40,7 +40,8 @@ Return a JSON object describing the page:
   "sensitive_data_visible": <true/false>,
   "sensitive_data_description": "<what sensitive data is visible if any>",
   "role_indicators": "<describe any role/admin/user indicators visible>",
-  "api_endpoints_inferred": ["any API calls you can infer from the page behavior"]
+  "api_endpoints_inferred": ["any API calls you can infer from the page behavior"],
+  "confidence": <float 0.0-1.0, how confident you are in this analysis>
 }
 
 Rules:
@@ -266,6 +267,7 @@ class AutonomousExplorer:
                     sensitive_data_description=analysis.get("sensitive_data_description", ""),
                     role_indicators=analysis.get("role_indicators", ""),
                     api_endpoints_inferred=analysis.get("api_endpoints_inferred", []),
+                    analysis_confidence=float(analysis.get("confidence", 0.5)),
                     screenshot_path=str(screenshot_path),
                     dom_summary=dom_summary[:_MAX_DOM_CHARS],
                     visible_text=visible_text[:_MAX_VISIBLE_TEXT],

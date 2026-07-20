@@ -204,6 +204,13 @@ exploration:
   max_depth: 5                        # Max BFS depth from portal root
   page_load_timeout: 30               # Seconds to wait for page load
 
+discovery:
+  enabled: true                       # Enable DOM XSS probing
+  dom_probe_delay: 2                  # Seconds to wait after injecting probe
+  safe_probes_only: true              # MUST be true — prevents malicious payload injection
+  vision_model: "gpt-4o"             # Must support vision
+  max_screenshots_per_run: 50         # Cost control for Vision LLM calls
+
 safe_execution:
   enabled: true                       # Set false to skip safe probe execution
   probe_prefix: "SF_PROBE_"           # Prefix for all safe probe strings

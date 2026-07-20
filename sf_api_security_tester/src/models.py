@@ -279,6 +279,7 @@ class PageSnapshot(BaseModel):
     sensitive_data_description: str = ""
     role_indicators: str = ""
     api_endpoints_inferred: list[str] = Field(default_factory=list)
+    analysis_confidence: float = 0.0
     screenshot_path: Optional[str] = None
     dom_summary: str = ""
     visible_text: str = ""
