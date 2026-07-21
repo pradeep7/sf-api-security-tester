@@ -1,0 +1,156 @@
+# =============================================================================
+# Cross-Domain Correlation Rules
+# =============================================================================
+# Rules for correlating findings across domain agents to escalate risk.
+# When multiple domains identify related issues, the correlation engine
+# applies these rules to determine if the combined finding warrants
+# escalation to Critical severity.
+# =============================================================================
+
+correlation_rules:
+  # =========================================================================
+  # Rule 1: Salesforce BOLA + Cloud IAM Misconfiguration
+  # =========================================================================
+  - rule_id: "CORR-001"
+    name: "Cross-Tenant Privilege Escalation Chain"
+    description: "If Salesforce BOLA vulnerability exists alongside Cloud IAM misconfiguration for the same tenant, escalate to Critical"
+    severity_escalation: "Critical"
+    trigger_conditions:
+      - finding_domain: "Record & Tenant Access"
+        finding_test_id_pattern: "API-BOLA-*"
+        status: ["CONFIRMED", "POTENTIAL"]
+      - finding_domain: "Cloud IAM"
+        finding_test_id_pattern: "*"
+        status: ["CONFIRMED", "POTENTIAL"]
+    correlation_logic:
+      type: "tenant_id_match"
+      fields_to_compare:
+        - "evidence.tenant_id"
+        - "evidence.entitlement_group"
+    rationale: "BOLA allows unauthorized record access; combined with IAM misconfiguration, attacker can escalate across tenants"
+
+  # =========================================================================
+  # Rule 2: SOQL Injection + Data Exposure
+  # =========================================================================
+  - rule_id: "CORR-002"
+    name: "Data Exfiltration Chain"
+    description: "If SOQL injection exists alongside excessive data exposure, the combined risk allows data exfiltration"
+    severity_escalation: "Critical"
+    trigger_conditions:
+      - finding_domain: "Input, Parser & Query Safety"
+        finding_test_id_pattern: "API-INJ-*"
+        status: ["CONFIRMED", "POTENTIAL"]
+      - finding_domain: "Data Exposure, Privacy & Cryptography"
+        finding_test_id_pattern: "API-EXP-*"
+        status: ["CONFIRMED", "POTENTIAL"]
+    correlation_logic:
+      type: "endpoint_match"
+      fields_to_compare:
+        - "evidence.endpoint_url"
+    rationale: "Injection vulnerability + excessive data exposure = full data exfiltration capability"
+
+  # =========================================================================
+  # Rule 3: BFLA + BOLA (Privilege + Object Access)
+  # =========================================================================
+  - rule_id: "CORR-003"
+    name: "Administrative Takeover Chain"
+    description: "If BFLA allows admin function access AND BOLA allows record access, attacker has full admin takeover"
+    severity_escalation: "Critical"
+    trigger_conditions:
+      - finding_domain: "Privilege & Function Boundaries"
+        finding_test_id_pattern: "API-BFLA-*"
+        status: ["CONFIRMED", "POTENTIAL"]
+      - finding_domain: "Record & Tenant Access"
+        finding_test_id_pattern: "API-BOLA-*"
+        status: ["CONFIRMED", "POTENTIAL"]
+    correlation_logic:
+      type: "endpoint_match"
+      fields_to_compare:
+        - "evidence.endpoint_url"
+    rationale: "Function-level + object-level bypass = complete admin takeover"
+
+  # =========================================================================
+  # Rule 4: SSRF + Credential Exposure
+  # =========================================================================
+  - rule_id: "CORR-004"
+    name: "Internal Network Credential Theft"
+    description: "If SSRF allows internal network access AND credentials are exposed, attacker can steal internal secrets"
+    severity_escalation: "Critical"
+    trigger_conditions:
+      - finding_domain: "Integration & Trust Boundary Security"
+        finding_test_id_pattern: "API-SSRF-*"
+        status: ["CONFIRMED", "POTENTIAL"]
+      - finding_domain: "Data Exposure, Privacy & Cryptography"
+        finding_test_id_pattern: "API-DATA-*"
+        status: ["CONFIRMED", "POTENTIAL"]
+    correlation_logic:
+      type: "endpoint_match"
+      fields_to_compare:
+        - "evidence.endpoint_url"
+    rationale: "SSRF + credential exposure = internal network compromise"
+
+  # =========================================================================
+  # Rule 5: Guest Access + BOLA
+  # =========================================================================
+  - rule_id: "CORR-005"
+    name: "Unauthenticated Data Access"
+    description: "If guest endpoints are accessible AND BOLA exists, unauthenticated users can access protected data"
+    severity_escalation: "Critical"
+    trigger_conditions:
+      - finding_domain: "Guest, File & Public Surface Security"
+        finding_test_id_pattern: "API-GUEST-*"
+        status: ["CONFIRMED", "POTENTIAL"]
+      - finding_domain: "Record & Tenant Access"
+        finding_test_id_pattern: "API-BOLA-*"
+        status: ["CONFIRMED", "POTENTIAL"]
+    correlation_logic:
+      type: "endpoint_match"
+      fields_to_compare:
+        - "evidence.endpoint_url"
+    rationale: "Guest access + BOLA = unauthenticated data access"
+
+  # =========================================================================
+  # Rule 6: Mass Assignment + Business Logic Bypass
+  # =========================================================================
+  - rule_id: "CORR-006"
+    name: "Unauthorized State Manipulation"
+    description: "If mass assignment allows field manipulation AND business logic can be bypassed, attacker can change arbitrary states"
+    severity_escalation: "High"
+    trigger_conditions:
+      - finding_domain: "Field, Property & Payload Authorisation"
+        finding_test_id_pattern: "API-PROP-*"
+        status: ["CONFIRMED", "POTENTIAL"]
+      - finding_domain: "Business Logic & Transaction Integrity"
+        finding_test_id_pattern: "API-BIZ-*"
+        status: ["CONFIRMED", "POTENTIAL"]
+    correlation_logic:
+      type: "endpoint_match"
+      fields_to_compare:
+        - "evidence.endpoint_url"
+    rationale: "Mass assignment + business logic bypass = arbitrary state manipulation"
+
+  # =========================================================================
+  # Rule 7: Rate Limiting + Enumeration
+  # =========================================================================
+  - rule_id: "CORR-007"
+    name: "Automated Enumeration Attack"
+    description: "If rate limiting is weak AND enumeration endpoints exist, attacker can brute-force data"
+    severity_escalation: "High"
+    trigger_conditions:
+      - finding_domain: "Abuse Resistance, Logging & Monitoring"
+        finding_test_id_pattern: "API-RATE-*"
+        status: ["CONFIRMED", "POTENTIAL"]
+      - finding_domain: "Record & Tenant Access"
+        finding_test_id_pattern: "API-BOLA-*"
+        status: ["CONFIRMED", "POTENTIAL"]
+    correlation_logic:
+      type: "endpoint_match"
+      fields_to_compare:
+        - "evidence.endpoint_url"
+    rationale: "Weak rate limiting + enumeration endpoints = automated data harvesting"
+
+correlation_config:
+  enabled: true
+  auto_escalate: false  # Require human approval for escalation
+  log_correlations: true
+  correlation_threshold: 2  # Minimum findings to trigger correlation

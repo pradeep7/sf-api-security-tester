@@ -1,0 +1,183 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Unified Security Finding Schema",
+  "description": "Shared JSON finding schema for cross-domain agent correlation. All domain agents (Salesforce, Cloud, Network, Web) output findings in this format.",
+  "type": "object",
+  "required": ["finding_id", "domain", "test_id", "severity", "status", "evidence", "owasp_mapping", "residual_risk_disclaimer"],
+  "properties": {
+    "finding_id": {
+      "type": "string",
+      "description": "Unique finding identifier (UUID format)",
+      "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$"
+    },
+    "domain": {
+      "type": "string",
+      "enum": [
+        "Identity, Authentication & Session",
+        "Record & Tenant Access",
+        "Privilege & Function Boundaries",
+        "Field, Property & Payload Authorisation",
+        "Input, Parser & Query Safety",
+        "Data Exposure, Privacy & Cryptography",
+        "Guest, File & Public Surface Security",
+        "Integration & Trust Boundary Security",
+        "Abuse Resistance, Logging & Monitoring",
+        "Business Logic & Transaction Integrity",
+        "Configuration, Inventory & Engineering Assurance",
+        "Client, Platform & General API Assurance",
+        "Cloud IAM",
+        "Network Infrastructure",
+        "Web Application"
+      ],
+      "description": "Security domain from Bible v7.1 or extended domains"
+    },
+    "test_id": {
+      "type": "string",
+      "description": "Bible v7.1 test identifier (e.g., API-BOLA-004)",
+      "pattern": "^API-[A-Z]+-\\d{3}$"
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["Critical", "High", "Medium", "Low", "Informational"],
+      "description": "Vulnerability severity"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["PASSED", "FAILED", "POTENTIAL_FINDING", "NOT_FINDING", "BLOCKED", "NOT_APPLICABLE", "ERROR"],
+      "description": "Test verdict"
+    },
+    "verdict_reasoning": {
+      "type": "string",
+      "description": "LLM-generated explanation of the verdict"
+    },
+    "evidence": {
+      "type": "object",
+      "description": "Structured evidence bundle",
+      "properties": {
+        "baseline_request": {
+          "type": "object",
+          "description": "Original legitimate request"
+        },
+        "baseline_response": {
+          "type": "object",
+          "description": "Response to legitimate request"
+        },
+        "test_request": {
+          "type": "object",
+          "description": "Mutated attack request"
+        },
+        "test_response": {
+          "type": "object",
+          "description": "Response to attack request"
+        },
+        "screenshot_path": {
+          "type": "string",
+          "description": "Path to Playwright screenshot"
+        },
+        "dom_snapshot": {
+          "type": "string",
+          "description": "DOM snapshot at time of finding"
+        },
+        "correlation_id": {
+          "type": "string",
+          "description": "Request correlation ID (X-SecTest-Request-Id)"
+        },
+        "telemetry_headers": {
+          "type": "object",
+          "description": "X-SecTest-* headers from the request"
+        }
+      }
+    },
+    "owasp_mapping": {
+      "type": "object",
+      "required": ["standard", "category_id", "category_name"],
+      "properties": {
+        "standard": {
+          "type": "string",
+          "enum": ["OWASP_API_Top10_2023", "OWASP_Web_Top10_2021", "OWASP_Secure_Coding", "Bible_v7_1"]
+        },
+        "category_id": {
+          "type": "string",
+          "description": "OWASP category ID (e.g., API1, A03, SC01)"
+        },
+        "category_name": {
+          "type": "string",
+          "description": "OWASP category name"
+        },
+        "bible_domain": {
+          "type": "string",
+          "description": "Bible v7.1 domain number and name"
+        }
+      }
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["Critical", "High", "Medium", "Low", "Informational"]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["CONFIRMED", "POTENTIAL", "NOT_A_FINDING", "INCONCLUSIVE"]
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["baseline_request", "baseline_response"],
+      "properties": {
+        "baseline_request": {
+          "type": "object",
+          "description": "Original request before mutation",
+          "properties": {
+            "method": {"type": "string"},
+            "url": {"type": "string"},
+            "headers": {"type": "object"},
+            "body": {"type": ["string", "null"]}
+          }
+        },
+        "baseline_response": {
+          "type": "object",
+          "description": "Response to original request",
+          "properties": {
+            "status_code": {"type": "integer"},
+            "headers": {"type": "object"},
+            "body_preview": {"type": "string", "maxLength": 2000}
+          }
+        },
+        "mutated_request": {
+          "type": "object",
+          "description": "Attack request after mutation"
+        },
+        "mutated_response": {
+          "type": "object",
+          "description": "Response to attack request"
+        },
+        "screenshot_path": {
+          "type": "string",
+          "description": "Path to screenshot evidence (Visual DAST)"
+        },
+        "dom_snapshot": {
+          "type": "string",
+          "description": "DOM snapshot at time of finding"
+        }
+      }
+    },
+    "test_id": {
+      "type": "string",
+      "description": "Bible v7.1 test ID that generated this finding"
+    },
+    "residual_risk_disclaimer": {
+      "type": "string",
+      "const": "This test is evidence-backed only for the executed route, role, method, data context and environment. Record untested variants, exclusions and residual risk.",
+      "description": "Mandatory disclaimer for all findings"
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "agent_id": {"type": "string", "description": "Source agent identifier"},
+        "execution_mode": {"type": "string", "enum": ["observe", "validate", "confirm"]},
+        "execution_timestamp": {"type": "string", "format": "date-time"},
+        "evidence_completeness": {"type": "number", "minimum": 0, "maximum": 1},
+        "llm_confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "llm_reasoning": {"type": "string"}
+      }
+    }
+  }
+}

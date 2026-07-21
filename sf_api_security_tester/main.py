@@ -112,6 +112,11 @@ Examples:
         type=str,
         help="Target URL for HAR generation or exploration (required with --generate-har)",
     )
+    parser.add_argument(
+        "--demo",
+        action="store_true",
+        help="Generate sample output files for demo/integration testing (no live target required)",
+    )
 
     return parser.parse_args()
 
@@ -175,6 +180,28 @@ def main() -> int:
         else:
             console.print("[red]HAR generation failed[/red]")
             return 1
+
+    # --- Demo Mode ---
+    if args.demo:
+        console.print("[bold magenta]🎭 DEMO MODE: Generating sample output files...[/bold magenta]")
+
+        from src.demo_generator import DemoGenerator
+
+        demo = DemoGenerator(output_dir=base_dir / "output")
+        files = demo.generate_all()
+
+        console.print()
+        console.print("[bold magenta]🎭 DEMO MODE — Sample Output Generated[/bold magenta]")
+        console.print("[dim]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/dim]")
+        console.print(f"  📊 output/reports/security_report.json     (4 findings, 12 domains)")
+        console.print(f"  📊 output/reports/security_report.html     (full HTML report)")
+        console.print(f"  📝 output/prompts/remediation/             (1 remediation prompt)")
+        console.print(f"  📝 output/prompts/triage/                  (1 triage prompt)")
+        console.print(f"  📝 output/prompts/ciso_summary.md          (1 CISO briefing)")
+        console.print(f"  📁 output/evidence/                        (4 evidence files)")
+        console.print("[dim]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/dim]")
+        console.print(f"[green]Total: {len(files)} files generated. Ready for Pipeline 1 handoff.[/green]")
+        return 0
 
     # --- Normal Pipeline Mode ---
     # Resolve HAR files
