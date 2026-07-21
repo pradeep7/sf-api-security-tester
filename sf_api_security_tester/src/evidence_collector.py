@@ -178,3 +178,34 @@ class EvidenceCollector:
             )
             evidences.append(evidence)
         return evidences
+
+    def validate_evidence(
+        self,
+        test_id: str,
+        evidence_required: list[str],
+        captured_evidence: dict[str, str],
+    ) -> tuple[bool, list[str]]:
+        """V4.0: Validate that all required evidence was captured.
+
+        Returns:
+            (all_captured, list_of_missing_types)
+
+        If a required evidence type cannot be captured (e.g., no baseline
+        was established), the test status must be set to Blocked.
+        """
+        missing = []
+        for evidence_type in evidence_required:
+            if evidence_type not in captured_evidence or not captured_evidence[evidence_type]:
+                missing.append(evidence_type)
+                logger.warning(
+                    f"Test {test_id}: Missing required evidence: {evidence_type}"
+                )
+
+        all_captured = len(missing) == 0
+        if not all_captured:
+            logger.warning(
+                f"Test {test_id}: {len(missing)}/{len(evidence_required)} "
+                f"evidence items missing: {missing}"
+            )
+
+        return all_captured, missing

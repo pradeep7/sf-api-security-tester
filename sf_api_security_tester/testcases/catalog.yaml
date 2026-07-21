@@ -1,0 +1,249 @@
+# =============================================================================
+# V4.0 Strict Workbook Schema — Test Catalogue
+# =============================================================================
+# This file mirrors the API_Security_Testing_Bible_v7_1 workbook columns.
+# Each test entry MUST include: required_signals, exclusion_evidence,
+# blocking/companions, maximum_requests, state_changing, evidence_required.
+# =============================================================================
+
+catalog:
+  # =========================================================================
+  # 1. Identity, Authentication & Session
+  # =========================================================================
+  - test_id: "API-IAM-001"
+    domain: "Identity, Authentication & Session"
+    control: "API Keys & Client Credentials"
+    test_scenario: "API-key scope enforcement"
+    severity: "Critical"
+    verification_type: "Dynamic"
+    applicability:
+      required_signals: ["authenticated_operation", "api_key_present"]
+      exclusion_evidence: ["no_api_key_auth_used"]
+    dependencies:
+      blocking: []
+      companions: ["API-BFLA-001"]
+    execution:
+      requires_human_approval: false
+      maximum_requests: 5
+      state_changing: false
+      safe_mutations: ["strip_api_key", "modify_scope_claims"]
+    decision:
+      pass: "API returns 401/403 when scope is exceeded"
+      fail: "API returns 200 with data outside authorized scope"
+      blocked: "No API key authentication mechanism found"
+    evidence_required:
+      - "baseline_request_with_valid_key"
+      - "baseline_response"
+      - "out_of_scope_request"
+      - "out_of_scope_response"
+      - "api_key_scope_definition"
+
+  - test_id: "API-IAM-002"
+    domain: "Identity, Authentication & Session"
+    control: "Token Validation & JWT"
+    test_scenario: "Invalid signature rejection"
+    severity: "Critical"
+    verification_type: "Dynamic"
+    applicability:
+      required_signals: ["authenticated_operation", "jwt_or_token_auth"]
+      exclusion_evidence: ["no_jwt_auth_used"]
+    dependencies:
+      blocking: []
+      companions: ["API-BFLA-001"]
+    execution:
+      requires_human_approval: false
+      maximum_requests: 3
+      state_changing: false
+      safe_mutations: ["tamper_jwt_signature", "modify_jwt_payload"]
+    decision:
+      pass: "API returns 401 when signature is invalid"
+      fail: "API accepts request with tampered JWT"
+      blocked: "No JWT/token authentication mechanism found"
+    evidence_required:
+      - "baseline_request_with_valid_token"
+      - "baseline_response"
+      - "tampered_token_request"
+      - "tampered_token_response"
+      - "jwt_structure_documentation"
+
+  # =========================================================================
+  # 2. Record & Tenant Access (BOLA / IDOR)
+  # =========================================================================
+  - test_id: "API-BOLA-001"
+    domain: "Record & Tenant Access"
+    control: "Object Level Authorization"
+    test_scenario: "Cross-tenant record access"
+    severity: "Critical"
+    verification_type: "Dynamic"
+    applicability:
+      required_signals: ["authenticated_operation", "record_identifier", "tenant_context"]
+      exclusion_evidence: ["operation_returns_no_record_scoped_data"]
+    dependencies:
+      blocking: ["API-IAM-001"]
+      companions: ["API-PROP-003"]
+    execution:
+      requires_human_approval: false
+      maximum_requests: 3
+      state_changing: false
+      safe_mutations: ["substitute_approved_out_of_scope_identifier"]
+    decision:
+      pass: "HTTP 403/404 returned, no protected data in body"
+      fail: "HTTP 200 returned with out-of-scope record data"
+      blocked: "Authenticated baseline or comparison entitlement unavailable"
+    evidence_required:
+      - "baseline_request"
+      - "baseline_response"
+      - "negative_request"
+      - "negative_response"
+      - "tested_role"
+
+  - test_id: "API-BOLA-002"
+    domain: "Record & Tenant Access"
+    control: "Object Level Authorization"
+    test_scenario: "Vertical privilege escalation via record access"
+    severity: "Critical"
+    verification_type: "Dynamic"
+    applicability:
+      required_signals: ["authenticated_operation", "record_identifier", "role_boundary"]
+      exclusion_evidence: ["role_enforced_at_platform_level"]
+    dependencies:
+      blocking: ["API-IAM-001"]
+      companions: ["API-BFLA-001"]
+    execution:
+      requires_human_approval: false
+      maximum_requests: 3
+      state_changing: false
+      safe_mutations: ["swap_to_admin_record_id"]
+    decision:
+      pass: "HTTP 403/404 returned for lower-privilege role"
+      fail: "HTTP 200 returned with admin-scoped data"
+      blocked: "Both role entitlements not available for comparison"
+    evidence_required:
+      - "baseline_request_user_role"
+      - "baseline_response_user_role"
+      - "escalation_request_admin_record"
+      - "escalation_response"
+      - "role_entitlement_matrix"
+
+  # =========================================================================
+  # 3. Privilege & Function Boundaries (BFLA)
+  # =========================================================================
+  - test_id: "API-BFLA-001"
+    domain: "Privilege & Function Boundaries"
+    control: "Function Level Authorization"
+    test_scenario: "Admin function accessible with user token"
+    severity: "High"
+    verification_type: "Dynamic"
+    applicability:
+      required_signals: ["authenticated_operation", "admin_endpoint_or_function"]
+      exclusion_evidence: ["function_requires_platform_admin"]
+    dependencies:
+      blocking: ["API-IAM-001"]
+      companions: ["API-BOLA-001"]
+    execution:
+      requires_human_approval: false
+      maximum_requests: 3
+      state_changing: false
+      safe_mutations: ["access_admin_endpoint_with_user_token"]
+    decision:
+      pass: "HTTP 403 returned for non-admin token"
+      fail: "HTTP 200 returned with admin function data"
+      blocked: "Admin endpoint not discoverable or platform-enforced"
+    evidence_required:
+      - "baseline_request_user_token"
+      - "baseline_response"
+      - "admin_endpoint_request_user_token"
+      - "admin_endpoint_response"
+      - "admin_function_definition"
+
+  # =========================================================================
+  # 5. Input, Parser & Query Safety
+  # =========================================================================
+  - test_id: "API-INJ-001"
+    domain: "Input, Parser & Query Safety"
+    control: "SOQL Injection"
+    test_scenario: "Parameterised query bypass"
+    severity: "Critical"
+    verification_type: "Dynamic"
+    applicability:
+      required_signals: ["soql_query_endpoint", "user_controllable_input"]
+      exclusion_evidence: ["input_fully_sanitised_before_query"]
+    dependencies:
+      blocking: []
+      companions: ["API-INJ-002"]
+    execution:
+      requires_human_approval: false
+      maximum_requests: 5
+      state_changing: false
+      safe_mutations: ["append_soql_tautology", "union_select_probe"]
+    decision:
+      pass: "Query rejected, sanitised, or returns no unauthorised data"
+      fail: "Unauthorised data returned or query executed without sanitisation"
+      blocked: "No user-controllable input reaches a query endpoint"
+    evidence_required:
+      - "baseline_request"
+      - "baseline_response"
+      - "injection_request"
+      - "injection_response"
+      - "query_parameter_documentation"
+
+  # =========================================================================
+  # 6. Data Exposure, Privacy & Cryptography
+  # =========================================================================
+  - test_id: "API-EXP-001"
+    domain: "Data Exposure, Privacy & Cryptography"
+    control: "Excessive Data Exposure"
+    test_scenario: "Over-permissive field exposure in list/get responses"
+    severity: "High"
+    verification_type: "Dynamic"
+    applicability:
+      required_signals: ["list_or_get_endpoint", "response_contains_sensitive_fields"]
+      exclusion_evidence: ["field_level_security_enforced"]
+    dependencies:
+      blocking: []
+      companions: ["API-PROP-003"]
+    execution:
+      requires_human_approval: false
+      maximum_requests: 3
+      state_changing: false
+      safe_mutations: ["compare_response_field_count"]
+    decision:
+      pass: "Response contains only fields authorised for the tested role"
+      fail: "Response contains fields beyond the authorised field set"
+      blocked: "Authorised field set cannot be determined"
+    evidence_required:
+      - "baseline_request"
+      - "baseline_response"
+      - "field_level_security_matrix"
+      - "response_field_inventory"
+
+  # =========================================================================
+  # 8. Integration & Trust Boundary Security
+  # =========================================================================
+  - test_id: "API-SSRF-001"
+    domain: "Integration & Trust Boundary Security"
+    control: "Server-Side Request Forgery"
+    test_scenario: "Internal network access via user-controlled URL"
+    severity: "Critical"
+    verification_type: "Dynamic"
+    applicability:
+      required_signals: ["user_controllable_url_input", "server_makes_outbound_requests"]
+      exclusion_evidence: ["url_input_fully_allowlisted"]
+    dependencies:
+      blocking: []
+      companions: []
+    execution:
+      requires_human_approval: false
+      maximum_requests: 3
+      state_changing: false
+      safe_mutations: ["inject_internal_metadata_url"]
+    decision:
+      pass: "Request blocked or URL sanitised (allowlist enforced)"
+      fail: "Server makes request to internal/private network"
+      blocked: "No user-controllable URL input exists"
+    evidence_required:
+      - "baseline_request"
+      - "baseline_response"
+      - "ssrf_probe_request"
+      - "ssrf_probe_response"
+      - "url_validation_configuration"

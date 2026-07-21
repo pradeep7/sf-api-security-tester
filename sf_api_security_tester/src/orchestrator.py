@@ -46,7 +46,9 @@ from .models import (
     TestPlan,
     TestReport,
 )
+from .governance_engine import GovernanceEngine
 from .mutation_engine import MutationEngine
+from .prompt_generator import PromptGenerator
 from .report_generator import ReportGenerator
 from .role_manager import RoleManager
 from .safe_executor import SafePayloadExecutor
@@ -106,6 +108,8 @@ class Orchestrator:
         self.har_analyzer: HarAnalyzer | None = None
         self.har_intelligence: dict[str, Any] | None = None
         self.workflow_mapper: WorkflowMapper | None = None
+        self.governance_engine: GovernanceEngine | None = None
+        self.prompt_generator: PromptGenerator | None = None
         self.harvested_cookies: dict[str, str] = {}
 
         # V3.0 State
@@ -214,6 +218,15 @@ class Orchestrator:
 
         # V3.1: Workflow Mapper (API6 state machine detection)
         self.workflow_mapper = WorkflowMapper(self.config)
+
+        # V4.0: Governance Engine (workbook schema enforcement)
+        self.governance_engine = GovernanceEngine(self.config)
+
+        # V4.0: Prompt Generator (AI IDE prompt artifacts)
+        self.prompt_generator = PromptGenerator(
+            self.config.get("reporting", {}).get("output_dir", "output/reports")
+            + "/prompts"
+        )
 
         # V3.0: Autonomous Reconnaissance
         self.autonomous_explorer = AutonomousExplorer(self.config)
@@ -1074,6 +1087,20 @@ class Orchestrator:
         output_files = self.report_generator.generate(report)
         for fmt, path in output_files.items():
             console.print(f"  [green]{fmt.upper()} report: {path}[/green]")
+
+        # V4.0: Generate AI prompt artifacts
+        if self.prompt_generator:
+            prompt_results = self.prompt_generator.generate_all(report)
+            total_prompts = sum(len(v) for v in prompt_results.values())
+            if total_prompts > 0:
+                console.print(
+                    f"  [green]Smart Prompts: {total_prompts} files in "
+                    f"{self.prompt_generator.output_dir}/[/green]"
+                )
+                console.print(
+                    f"  [dim]Open these in VS Code and feed to your AI assistant "
+                    f"for instant remediation and triage.[/dim]"
+                )
 
         return report
 

@@ -33,11 +33,16 @@ class SafePayloadExecutor:
 
     def __init__(self, config: dict[str, Any]):
         expl_cfg = config.get("exploration", {})
+        safe_cfg = config.get("safe_execution", {})
         self.enabled: bool = expl_cfg.get("enabled", True)
         self.page_load_timeout: int = expl_cfg.get("page_load_timeout", 30) * 1000
+        self.max_probes_per_page: int = safe_cfg.get("max_probes_per_page", 5)
+        self.max_total_probes: int = safe_cfg.get("max_total_probes_per_run", 500)
         self._playwright: Any = None
         self._browser: Any = None
         self._context: Any = None
+        self._request_count: int = 0  # V4.0: Track requests per test
+        self._request_counts: dict[str, int] = {}  # test_id -> count
 
     def execute_probes(
         self,
@@ -102,12 +107,43 @@ class SafePayloadExecutor:
         return results
 
     async def _execute_single_probe(
-        self, probe: PlannedTest, page_by_id: dict[str, Any]
+        self, probe: PlannedTest, page_by_id: dict[str, Any],
+        max_requests: int = 0, requires_approval: bool = False,
     ) -> FindingResult | None:
-        """Execute a single safe probe against a page field."""
+        """Execute a single safe probe against a page field.
+
+        V4.0: Enforces request limits and human-in-the-loop gate.
+        """
         page_info = page_by_id.get(probe.target_page_id)
         if not page_info:
             return None
+
+        # --- V4.0: Request limit check ---
+        current_count = self._request_counts.get(probe.test_id, 0)
+        if max_requests and current_count >= max_requests:
+            logger.warning(
+                f"Test {probe.test_id} hit maximum_requests ({current_count}/{max_requests})"
+            )
+            return self._make_result(
+                probe, False,
+                f"BLOCKED: Request limit exceeded ({current_count}/{max_requests})"
+            )
+
+        # --- V4.0: Human-in-the-loop gate ---
+        if requires_approval:
+            from rich.console import Console
+            console = Console()
+            console.print(
+                f"\n[yellow]GOVERNANCE GATE: Test {probe.test_id} is state-changing "
+                f"or requires approval.[/yellow]"
+            )
+            try:
+                input("[yellow]Press ENTER to execute, or Ctrl+C to skip: [/yellow]")
+            except (KeyboardInterrupt, EOFError):
+                logger.info(f"User skipped test {probe.test_id}")
+                return self._make_result(
+                    probe, False, "SKIPPED: User declined governance gate"
+                )
 
         try:
             page = await self._context.new_page()
@@ -120,6 +156,10 @@ class SafePayloadExecutor:
                     wait_until="domcontentloaded",
                 )
                 await page.wait_for_timeout(2000)
+
+                # --- V4.0: Track request count ---
+                self._request_counts[probe.test_id] = current_count + 1
+                self._request_count += 1
 
                 # Find and fill the target field
                 field_found = await self._fill_field(

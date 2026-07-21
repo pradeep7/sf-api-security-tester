@@ -375,6 +375,52 @@ footer {
     border-top: 1px solid var(--border);
 }
 
+/* --- Residual Risk Disclaimer (V4.0) --- */
+.residual-risk-disclaimer {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px 20px;
+    background: rgba(210, 153, 34, 0.1);
+    border: 1px solid var(--accent-yellow);
+    border-radius: 8px;
+    margin-bottom: 24px;
+}
+
+.disclaimer-icon {
+    font-size: 24px;
+    flex-shrink: 0;
+}
+
+.disclaimer-content {
+    font-size: 13px;
+    color: var(--text-primary);
+    line-height: 1.5;
+}
+
+.disclaimer-content strong {
+    color: var(--accent-yellow);
+}
+
+/* --- Evidence Checklist (V4.0) --- */
+.evidence-checklist {
+    margin-top: 8px;
+    padding: 8px 12px;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    font-size: 12px;
+}
+
+.evidence-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 0;
+}
+
+.evidence-captured { color: var(--accent-green); }
+.evidence-missing { color: var(--accent-red); }
+
 /* --- Workflow Visualization (V3.1) --- */
 .workflows-section { margin-bottom: 30px; }
 
@@ -847,6 +893,17 @@ footer {
         {% endif %}
     </div>
 </header>
+
+<!-- Residual Risk Disclaimer (V4.0) -->
+<div class="residual-risk-disclaimer">
+    <div class="disclaimer-icon">&#x26A0;&#xFE0F;</div>
+    <div class="disclaimer-content">
+        <strong>Residual Risk Statement:</strong> This assessment is evidence-backed only for the
+        executed route, role, method, data context, and environment. It does not prove alternate
+        roles, routes, versions, batch paths, or trust boundaries. Untested variants, exclusions,
+        and residual risk must be reviewed manually.
+    </div>
+</div>
 
 <!-- Executive Summary -->
 <h2 class="section-title">Executive Summary</h2>
@@ -1347,6 +1404,25 @@ footer {
                     <div class="visual-evidence-content">{{ f.visible_evidence }}</div>
                     {% endif %}
                 </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Evidence Checklist (V4.0) -->
+        {% if f.evidence_required is defined and f.evidence_required %}
+        <div class="detail-section">
+            <h4>Evidence Checklist</h4>
+            <div class="evidence-checklist">
+                {% for ev_type in f.evidence_required %}
+                <div class="evidence-item">
+                    {% if ev_type in f.evidence_captured %}
+                    <span class="evidence-captured">&#x2705;</span>
+                    {% else %}
+                    <span class="evidence-missing">&#x274C;</span>
+                    {% endif %}
+                    <span>{{ ev_type }}</span>
+                </div>
+                {% endfor %}
             </div>
         </div>
         {% endif %}

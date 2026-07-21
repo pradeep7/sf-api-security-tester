@@ -1,6 +1,6 @@
-# Salesforce API Security Tester — Architecture & Developer Guide (V3.1)
+# Salesforce API Security Tester — Architecture & Developer Guide (V4.0)
 
-Welcome to the **Salesforce API Security Tester V3.1: The Autonomous AI Security Agent**. This guide is designed for security engineers, developers, and maintainers to deeply understand the framework's architecture, core components, and data flow.
+Welcome to the **Salesforce API Security Tester V4.0: The Governed Agentic Control Plane**. This guide is designed for security engineers, developers, and maintainers to deeply understand the framework's architecture, core components, and data flow.
 
 ---
 
@@ -8,7 +8,7 @@ Welcome to the **Salesforce API Security Tester V3.1: The Autonomous AI Security
 
 This framework is an **autonomous, context-aware AI security agent** specifically tailored for Salesforce portals (Assist/Tenant portals, Communities, etc.). Unlike traditional scanners that passively replay recorded traffic, V3.1 **actively explores the live application** like a human would — clicking every link, understanding every page, mapping every role — and *then* tests intelligently.
 
-It operates as a **7-phase pipeline**: it autonomously discovers the application surface, builds a feature inventory, executes safe probes to identify reflection points, fires real attack mutations, uses a **Hybrid AI Engine** (Text LLMs and Vision LLMs) to verify findings and eliminate false positives, and generates comprehensive reports with visual evidence.
+It operates as a **9-phase governed pipeline**: it autonomously discovers the application surface, enforces the Bible v7.1 workbook schema via a Governance Engine, builds a feature inventory, executes safe probes to identify reflection points, fires real attack mutations, uses a **Hybrid AI Engine** (Text LLMs and Vision LLMs) to verify findings and eliminate false positives, and generates comprehensive reports with auto-generated AI prompts for developer remediation.
 
 ### **The Pipeline (Orchestrator)**
 
@@ -18,13 +18,14 @@ The entire flow is managed by `src/orchestrator.py`. The execution lifecycle fol
 |-------|------|-----------|---------|
 | **-1** | HAR Generation | `har_generator.py` | Records live browser traffic as HAR via Playwright native recording (with proxy support) |
 | **0** | Autonomous Explore | `autonomous_explorer.py` | Playwright BFS discovers every page; Vision LLM understands context; Smart SSO/MFA fallback |
-| **0.5** | Feature Inventory & Safe Probing | `feature_inventory.py`, `test_planner.py`, `safe_executor.py`, `dom_xss_auditor.py` | Maps risk surfaces; executes harmless probes to verify reflection |
+| **0.5** | Feature Inventory & Safe Probing | `feature_inventory.py`, `test_planner.py`, `safe_executor.py`, `dom_xss_auditor.py` | Maps risk surfaces; executes harmless canary probes to verify reflection |
 | **1** | HAR Parse + Smart Analysis | `har_parser.py`, `har_analyzer.py` | Parses browser traffic; LLM-powered deep API intelligence analysis |
+| **1.5** | Governance Engine | `governance_engine.py` | Enforces Bible v7.1 schema: signal matching, dependency circuit breakers, exclusion checking, evidence validation |
 | **2** | Classify & Plan | `endpoint_classifier.py`, `test_case_engine.py` | Categorizes endpoints; maps OWASP rules to attack surfaces |
-| **3** | Execute Mutations | `mutation_engine.py`, `executor.py` | Sends real attack payloads with WAF evasion and telemetry headers |
+| **3** | Execute Mutations | `mutation_engine.py`, `executor.py` | Sends real attack payloads with WAF evasion, telemetry headers, and request limits |
 | **4** | LLM Triage | `llm_verifier.py` | Text LLM confirms/rejects `POTENTIAL_FINDING` verdicts |
 | **5** | Visual DAST | `visual_auditor.py` | Vision LLM analyzes screenshots for DOM XSS and data exposure |
-| **6** | Report Generation | `report_generator.py` | HTML/JSON report with Feature Inventory, Visual Evidence, OWASP matrix |
+| **6** | Report & AI Prompt Bridge | `report_generator.py`, `prompt_generator.py` | HTML/JSON reports + auto-generated redacted AI prompts for developer remediation |
 
 ---
 
@@ -98,6 +99,38 @@ Every single test is mathematically traceable from discovery to the final report
 7. Visual Auditor: Verifies with Vision LLM screenshot analysis
    ↓
 8. Report: Generates finding mapped to "API1 BOLA + A03 SQLi on Contact List search"
+
+---
+
+## 1.7 The V4.0 Governance Layer & Bible v7.1
+
+V4.0 introduces a **strict enforcement engine** that transforms the framework from a "smart scanner" into a **governed security testing platform**. Every test must comply with the `API_Security_Testing_Bible_v7_1` workbook before execution.
+
+### The Bible v7.1: 12 Domains, 483 Tests
+
+| # | Security Domain | Tests | Focus Area |
+|---|-----------------|-------|------------|
+| 1 | Identity, Authentication & Session | 79 | API Keys, MFA, Password Recovery, Session Management |
+| 2 | Record & Tenant Access (BOLA / IDOR) | 22 | Object Identifier Authorisation, Cross-Tenant Isolation |
+| 3 | Privilege & Function Boundaries (BFLA) | 35 | Admin Bypass, Method Tampering, Workflow State Enforcement |
+| 4 | Field, Property & Payload Authorisation | 34 | Mass Assignment, Field-level Read Controls, Over-posting |
+| 5 | Input, Parser & Query Safety | 115 | Injection, Content Types, Boundaries, Deserialisation |
+| 6 | Data Exposure, Privacy & Cryptography | 21 | Response Minimisation, Secrets, Encryption, Pagination |
+| 7 | Guest, File & Public Surface Security | 24 | Guest APIs, File Uploads, Public Links, Archives |
+| 8 | Integration & Trust Boundary Security | 47 | SSRF, Callbacks, Delegated Credentials, Downstream Auth |
+| 9 | Abuse Resistance, Logging & Monitoring | 15 | Rate Limits, Quotas, Security Logging, Correlation |
+| 10 | Business Logic & Transaction Integrity | 20 | Concurrency, Replay, Idempotency, Multi-step Atomicity |
+| 11 | Configuration, Inventory & Engineering Assurance | 64 | API Inventory, Deprecation, Secrets Management, Drift Detection |
+| 12 | Client, Platform & General API Assurance | 7 | CORS, Browser Headers, Client Storage, Protocol Contracts |
+| **TOTAL** | **12 Domains** | **483 Tests** | **267 Critical/High Priority \| 32 Foundation Tests** |
+
+### Governance Engine Features
+
+- **Signal-Based Applicability:** Tests only run if `required_signals` (e.g., `authenticated_operation`, `record_identifier`) are found in the HAR/Explorer data. Otherwise, they are marked `Not Applicable` or `Not Observed`.
+- **The Circuit Breaker:** If a blocking prerequisite (e.g., `API-AUTH-001`) fails, all dependent tests are immediately marked `Blocked` to prevent wasted execution.
+- **Strict Evidence Validation:** A test cannot pass/fail unless all `evidence_required` items are captured. Missing evidence = Blocked status.
+- **Request Limits:** The executor tracks requests per `test_id` and stops at `maximum_requests`.
+- **Human-in-the-Loop Gate:** Tests with `requires_human_approval: true` pause the CLI for explicit confirmation.
 
 ---
 
@@ -302,6 +335,44 @@ Every action is timestamped and logged via the `AuditEvent` dataclass:
 
 The `SiteMap.audit_log` field stores all events for the scan. This provides complete compliance evidence of what was tested and when.
 
+### 2.14 Governance Engine (`src/governance_engine.py`)
+
+The Governance Engine enforces the Bible v7.1 workbook schema before any test is executed.
+
+**Signal-Based Applicability:** Each test has `required_signals` (e.g., `["authenticated_operation", "record_identifier"]`). The engine compares these against the FeatureInventory and ContextRouter output. If a signal is missing, the test is marked `Not Applicable` with the reason: *"Missing required signal: [signal_name]"*.
+
+**Exclusion Checking:** If `exclusion_evidence` is found in the HAR/Exploration data, the test is marked `Not Applicable`.
+
+**Circuit Breaker (Dependencies):** Before scheduling a test, the engine checks its `blocking` dependencies. If any blocking test has a status of `Failed` or `Blocked`, the current test is immediately marked `Blocked` with: *"Invalidated by failed prerequisite: [blocking_test_id]"*.
+
+**Evidence Validation:** A test cannot be marked Passed or Failed unless all `evidence_required` items (e.g., `baseline_request`, `negative_response`, `tested_role`) are successfully captured.
+
+### 2.15 AI Prompt Bridge (`src/prompt_generator.py`)
+
+The AI Prompt Bridge auto-generates ready-to-use Markdown prompts at the end of Phase 6, so developers can instantly feed context-rich prompts to their AI IDE (Cursor/Copilot/Claude).
+
+**Remediation Prompts** (`output/prompts/remediation/`): For each Failed/Probable finding, generates a prompt with Test ID, Bible Control Requirement, Endpoint, Injected Payload, and redacted HTTP Evidence. Includes the Residual Risk Disclaimer and tasks the AI to generate the exact code fix.
+
+**Triage Prompts** (`output/prompts/triage/`): For each Possible/Unable to Determine finding, generates a prompt instructing the AI to act as a "Senior Triage Engineer", compare baseline vs. negative request, and determine True Positive vs. False Positive.
+
+**Executive Summary Prompt** (`output/prompts/ciso_summary.md`): Aggregates all test statistics and generates a prompt for the AI to write a 1-paragraph CISO briefing.
+
+All prompts pass evidence through redaction logic (no raw tokens/passwords) and include the Residual Risk Disclaimer.
+
+### 2.16 Forensic Telemetry Headers
+
+The executor injects 7 forensic headers into every HTTP request for proxy/SIEM correlation:
+
+| Header | Purpose |
+|--------|---------|
+| `X-SecTest-Phase` | Pipeline phase (`Phase-3-Mutation`, `Phase-0.5-SafeProbe`) |
+| `X-SecTest-OWASP` | OWASP categories (`A03`, `API1`, etc.) |
+| `X-SecTest-Category` | Test type (`SOQL-Injection`, `BOLA`, `XSS`, etc.) |
+| `X-SecTest-Case-ID` | Test case identifier |
+| `X-SecTest-Payload-Hash` | MD5 hash of payload (never raw payload in headers) |
+| `X-SecTest-Target-Field` | Parameter/field name being injected (`q`, `IsDeleted`, etc.) |
+| `X-SecTest-Inject-Location` | Injection structure (`query`, `json_body`, `url_path`, `header`) |
+
 ---
 
 ## 3. Configuration & Rules
@@ -412,6 +483,7 @@ YAML-based security rules mapping to OWASP Top 10. Each test case defines:
 
 | Flag | Description |
 |------|-------------|
+| `--mode <mode>` | Execution mode: `observe` (zero requests, map coverage), `validate` (safe canaries only), or `confirm` (full mutation, pauses for human approval on state-changing tests) |
 | `--generate-har` | Phase -1: Record live browser traffic as a HAR file (use with `--target`) |
 | `--target <url>` | Target URL for HAR generation or exploration (required with `--generate-har`) |
 | `--manual-auth` | Opens browser for manual SSO/JIT login, harvests cookies, and uses them for automated testing |
@@ -438,40 +510,46 @@ python main.py --generate-har --target https://your-portal.salesforce.com
 python main.py --har output/live_crawl.har -v
 ```
 
-### Use Case 1: Safe Recon (Zero Attacks)
+### Use Case 1: Observe Mode (Zero Requests)
 
-Maps the application, runs safe probes, identifies risk surfaces — no real payloads sent.
+Map Bible coverage, identify risk surfaces — zero active requests sent.
 
 ```bash
-# Set credentials
-$env:SF_ADMIN_PASSWORD = "your-admin-password"
-$env:LLM_API_KEY = "sk-your-openai-key"
-
-# Run exploration only
-python main.py --explore-only -v
+python main.py --mode observe --har output/live_crawl.har
 
 # Output:
-# AI Explorer: Mapping application...
-#   Discovered 45 pages, 120 input fields
-# Feature inventory: 12 risk surfaces identified
-# Safe probes: 8 potential findings from 95 probes
+# Phase 0: AI Explorer mapping application... (45 pages)
+# Phase 0.5: Feature inventory: 12 risk surfaces
+# Phase 1.5: Governance Engine: 483 tests evaluated, 180 applicable
+# Reports generated with full coverage matrix
 ```
 
-### Use Case 2: Full Autonomous Attack
+### Use Case 2: Validate Mode (Safe Canaries Only)
 
-Complete 7-phase pipeline — exploration, probing, real mutations, LLM verification, visual DAST.
+Run safe canary probes and read-only mutations — no destructive actions.
 
 ```bash
-python main.py -v
+python main.py --mode validate --har output/live_crawl.har
 
 # Output:
-# AI Explorer: Mapping application... (45 pages)
-# Planning tests from 45 discovered pages...
-# Phase 1: Parsing HAR files...
-# Phase 3: Executing mutations...
-# AI Brain: Verifying 14 potential findings...
-# Visual AI: Analyzing 6 screenshots for DOM XSS...
-# Reports generated: output/reports/security_report.html
+# Phase 0.5: Safe canaries executed (47 probes)
+# Phase 3: Read-only mutations only
+# Phase 4: LLM verification
+# Reports with evidence-backed findings
+```
+
+### Use Case 3: Confirm Mode (Full Attack Pipeline)
+
+Complete 9-phase governed pipeline — pauses for human approval on state-changing tests.
+
+```bash
+python main.py --mode confirm --har output/live_crawl.har
+
+# Output:
+# Phase 3: GOVERNANCE GATE: Test API-BOLA-001 is state-changing. Press ENTER.
+# Phase 4: AI Brain: Verifying 14 potential findings...
+# Phase 5: Visual AI: Analyzing 6 screenshots for DOM XSS...
+# Phase 6: Reports + AI Prompts generated
 ```
 
 ### Use Case 3: Multi-Role Privilege Check
@@ -500,11 +578,15 @@ python main.py --skip-explore --har input/assist_portal.har -v
 ## 5. Architectural Boundaries & Coupling
 
 - **High Fan-In (Core Libs)**: `models.py`, `finding_evaluator.py`, and `waf_evasion.py` are imported everywhere. Do not add heavy dependencies to these files.
-- **Orchestrator as State Machine**: The `Orchestrator` manages a complex 7-phase state machine. It imports everything but nothing imports the `Orchestrator`. It wires components and manages phase transitions.
+- **Orchestrator as State Machine**: The `Orchestrator` manages a complex 9-phase state machine. It imports everything but nothing imports the `Orchestrator`. It wires components and manages phase transitions.
+- **Governance is Immutable**: The `GovernanceEngine` strictly enforces the Bible v7.1 schema. Tests marked `Blocked` or `Not Applicable` are never executed. The governance layer cannot be bypassed.
+- **Evidence is Mandatory**: No test can be marked Passed or Failed unless all `evidence_required` items are successfully captured. Missing evidence = Blocked status.
+- **Residual Risk Disclaimer**: The HTML report and all AI prompts explicitly state: *"This assessment is evidence-backed only for the executed route, role, method, data context, and environment. It does not prove alternate roles, routes, versions, batch paths, or trust boundaries. Untested variants, exclusions and residual risk must be reviewed manually."*
 - **AI Brain is Decoupled**: The `LLMVerifier` and `VisualAuditor` are strictly gated. If API keys are missing or disabled in `settings.yaml`, the orchestrator seamlessly falls back to legacy logic (promoting all anomalies to findings) without crashing.
 - **RoleManager Enforces Isolation**: The `RoleManager` ensures strict browser context isolation between roles. Each role gets its own `browser.new_context()` — no shared cookies, no session contamination.
 - **Audit Trail is Append-Only**: `AuditEvent` objects are appended to `SiteMap.audit_log` and never modified after creation. This ensures compliance evidence integrity.
 - **Safe Probes are Non-Negotiable**: `safe_executor.py` and `dom_xss_auditor.py` never send real attack payloads. The `safe_probes_only: true` config flag is the hard constraint. Real payloads only flow through `mutation_engine.py` in Phase 3.
+- **Forensic Telemetry**: Every HTTP request carries 7 `X-SecTest-*` headers for proxy/SIEM correlation. Payload hashes are MD5'd — raw payloads are never placed in headers.
 
 ---
 
@@ -535,11 +617,15 @@ main.py
         │     └── waf_evasion.py
         ├── finding_evaluator.py     (Phase 3)
         ├── llm_verifier.py          (Phase 4)
+        ├── governance_engine.py     (Phase 1.5)
+        │     └── models.py (GovernanceResult)
         ├── visual_auditor.py        (Phase 5)
         ├── evidence_collector.py    (Phases 3-5)
         ├── screenshot_capture.py    (Phases 0, 3, 5)
-        └── report_generator.py      (Phase 6)
-              └── models.py (TestReport, ExecutiveSummary)
+        ├── report_generator.py      (Phase 6)
+        │     └── models.py (TestReport, ExecutiveSummary)
+        └── prompt_generator.py      (Phase 6)
+              └── models.py (PromptGenerator)
 ```
 
 ---
