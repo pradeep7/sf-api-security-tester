@@ -1,0 +1,27 @@
+
+Here is how the 7-phase V3.0 Autonomous Pipeline would theoretically execute end-to-end:
+
+### 1. Phase 0: Autonomous Explore (The Eyes)
+*   **Authentication:** The `autonomous_explorer.py` module would launch a Playwright headless browser and navigate to the generic login URL. It would locate the `#username` and `#password` selectors, inject the credentials from `credentials.yaml`, and handle the login sequence.
+*   **Discovery (BFS):** Once logged in, the agent would begin a Breadth-First Search, systematically clicking every `<a>` tag, `<button>`, and Salesforce Lightning tab. 
+*   **Vision Analysis:** At each new page, it takes a screenshot and extracts a DOM summary. It sends these to a Vision LLM to understand the context (e.g., "This is a User Settings page") and identify all input fields and their potential risk types (e.g., identifying a search bar as a potential SQL injection or XSS vector).
+
+### 2. Phase 0.5: Feature Inventory & Safe Probing (The Brain)
+*   **Mapping:** The `FeatureInventoryBuilder` aggregates the discoveries into a complete `SiteMap`, grouping pages by category and highlighting risk surfaces.
+*   **Safe Probes:** The `SmartTestPlanner` dispatches the `SafePayloadExecutor`. Instead of sending real attacks, it injects harmless tracking strings (e.g., `SF_XSS_PROBE_1234`) into the identified input fields. 
+*   **Local DOM Check:** The `dom_xss_auditor.py` checks the resulting page's DOM to see if `SF_XSS_PROBE_1234` is visually reflected. If it is, the field is flagged for real testing in Phase 3.
+
+### 3. Phases 1 & 2: HAR Parsing & Classification
+*   The framework combines the traffic naturally generated during the Phase 0 exploration with any pre-supplied `.har` files.
+*   It classifies the endpoints (e.g., `/services/data/` for data queries) and maps the appropriate OWASP API Top 10 rules from the YAML configurations to the discovered attack surfaces.
+
+### 4. Phase 3: Execute Mutations (The Attack)
+*   The `mutation_engine.py` generates the actual attack payloads. For example, if it found a URL containing a Salesforce Record ID, it generates requests swapping that ID with a cross-tenant ID to test for BOLA (Broken Object Level Authorization).
+*   The `executor.py` sends these HTTP requests, utilizing `waf_evasion.py` to handle rate limits or Cloudflare/WAF blocks by applying exponential backoffs and User-Agent rotation.
+
+### 5. Phases 4 & 5: AI Verification (LLM Triage & Visual DAST)
+*   **Text LLM:** If a mutation returns a suspicious HTTP response (e.g., a 200 OK after swapping an ID), the `llm_verifier.py` acts as a Senior Security Engineer. It analyzes the raw HTTP response to determine if unauthorized data was actually leaked, filtering out false positives.
+*   **Visual DAST:** If an XSS payload was sent, Playwright renders the response and takes a screenshot. The `visual_auditor.py` sends this screenshot to the Vision LLM to verify if the payload actually executed visually in the browser (e.g., rendering a broken layout or popping an alert) or if sensitive PII is exposed on the screen.
+
+### 6. Phase 6: Reporting
+*   The Orchestrator compiles all verified findings and generates an interactive HTML report. This report includes the application's Feature Inventory, the mapped OWASP risks, and side-by-side visual evidence (screenshots) of any confirmed vulnerabilities.

@@ -1,0 +1,531 @@
+
+
+# ═══════════════════════════════════════════════════
+# USE CASE 1: Safe Recon (Recommended First Run)
+# Maps the app, runs 47 canary probes, zero real attacks
+# ═══════════════════════════════════════════════════
+python main.py --explore-only --target "https://your-portal.salesforce.com" --manual-auth -v
+
+# ═══════════════════════════════════════════════════
+# USE CASE 2: Full Autonomous Attack
+# Recon → Canary Probes → Real Payloads → LLM Triage → Visual DAST → Report
+# ═══════════════════════════════════════════════════
+python main.py --target "https://your-portal.salesforce.com" --manual-auth -v
+
+# ═══════════════════════════════════════════════════
+# USE CASE 3: HAR-Only (Complex SSO already captured)
+# ═══════════════════════════════════════════════════
+python main.py --har output/live_crawl.har -v
+
+# ═══════════════════════════════════════════════════
+# USE CASE 4: Multi-Role Privilege Escalation
+# ═══════════════════════════════════════════════════
+python main.py --role-compare --manual-auth -v
+
+# ═══════════════════════════════════════════════════
+# USE CASE 5: Generate HAR for Caido/ZAP Analysis
+# ═══════════════════════════════════════════════════
+python main.py --generate-har --target "https://your-portal.salesforce.com" --manual-auth
+
+# ═══════════════════════════════════════════════════
+# USE CASE 6: Dry Run (Preview only, no requests sent)
+# ═══════════════════════════════════════════════════
+python main.py --dry-run --target "https://your-portal.salesforce.com" -v
+
+
+
+┌─────────────────────────────────────────────────────────────┐
+│              V3.1 AUTONOMOUS AI SECURITY AGENT              │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  Phase -1: HAR Generation ──── Playwright + Proxy (ZAP)     │
+│       ↓                                                     │
+│  Phase  0: Autonomous Explorer ─ BFS + Vision LLM           │
+│       ↓           (47 canaries, not 64,000)                 │
+│  Phase 0.5: Feature Inventory + Smart Canary Probing        │
+│       ↓           (3-stage workflow detection)              │
+│  Phase  1: HAR Parse + Smart Analysis                       │
+│       ↓                                                     │
+│  Phase  2: Context Router + Test Planner                    │
+│       ↓           (100% OWASP: 10+10+13 = 33 categories)   │
+│  Phase  3: Mutation Engine + WAF Evasion + Telemetry        │
+│       ↓           (X-SecTest-* headers for Caido/ZAP)       │
+│  Phase  4: LLM Triage ──────── False Positive Elimination   │
+│       ↓                                                     │
+│  Phase  5: Visual DAST ─────── Vision LLM DOM XSS Check     │
+│       ↓                                                     │
+│  Phase  6: Report ──────────── HTML + JSON + Evidence Vault │
+│                                                             │
+│  Outputs:                                                   │
+│    📊 Interactive HTML Report with Feature Inventory        │
+│    🔄 Visual Workflow State Machines                        │
+│    🔐 Role Comparison Analysis                              │
+│    📋 OWASP Compliance Matrix (33/33 = 100%)               │
+│    📂 Evidence Vault (requests, responses, screenshots)     │
+│    📜 Audit Trail (every click, probe, LLM call logged)    │
+└─────────────────────────────────────────────────────────────┘
+
+
+
+output/
+├── reports/
+│   ├── security_report_20240115_182745.html     ← Interactive HTML Report
+│   ── security_report_20240115_182745.json     ← Machine-readable JSON
+├── evidence/
+│   ├── 20240115_182745/                         ← Timestamped run folder
+│   │   ├── requests/                            ← Raw HTTP Requests
+│   │   │   ├── API1-001_bola_test_req.json
+│   │   │   ├── A03-SOQL-001_sqli_test_req.json
+│   │   │   └── ...
+│   │   ├── responses/                           ← Raw HTTP Responses
+│   │   │   ├── API1-001_bola_test_resp.json
+│   │   │   ├── A03-SOQL-001_sqli_test_resp.json
+│   │   │   └── ...
+│   │   ├── screenshots/                         ← Visual Proof
+│   │   │   ├── API1-001_bola_test.png
+│   │   │   ├── A03-SOQL-001_sqli_test.png
+│   │   │   └── ...
+│   │   ├── exploration/                         ← Phase 0 Recon Evidence
+│   │   │   ├── sitemap.json
+│   │   │   ├── audit_log.json
+│   │   │   └── page_snapshots/
+│   │   └── dom_xss/                            ← DOM XSS Probe Evidence
+│   │       ├── probe_results.json
+│   │       └── screenshots/
+── session_cookies.json                          ← Harvested SSO cookies (gitignored)
+
+
+
+🔍 Evidence Type #1: Raw HTTP Requests & Responses
+Location: output/evidence/{timestamp}/requests/ and responses/
+Format: JSON files with complete forensic detail:
+
+✅ Proof Elements:
+✅ Full HTTP Request (method, URL, headers, body, cookies)
+✅ Full HTTP Response (status, headers, body, timing)
+✅ Custom Telemetry Headers (X-SecTest-*) for traceability
+✅ Redacted Secrets (Authorization tokens, session cookies are masked)
+✅ OWASP Mapping (which categories this test covers)
+✅ AI Triage Results (LLM verdict and reasoning)
+
+
+
+📸 Evidence Type #2: Visual Screenshots
+Location: output/evidence/{timestamp}/screenshots/
+Format: Full-page PNG captures (1920x1080 or responsive)
+What You See:
+The exact browser state when the vulnerability was triggered
+Reflected payloads visible in the UI
+Error messages rendered on screen
+Salesforce Lightning UI context
+Timestamp overlay (if enabled)
+Example: A03-SOQL-001_sqli_test.png shows the Salesforce error page with the SOQL syntax error visibly rendered.
+
+
+🔄 Evidence Type #3: Autonomous Exploration Audit Trail
+Location: output/evidence/{timestamp}/exploration/audit_log.json
+Format: Chronological JSON array of every action:
+
+
+✅ Proof Elements:
+✅ Every Click Logged (navigation, form submission, button clicks)
+✅ Every LLM Call Tracked (tokens used, cost, prompt hash)
+✅ Every Probe Recorded (canary strings, reflection status)
+✅ Role Context (which user role performed the action)
+✅ Timestamp Precision (millisecond accuracy)
+
+
+📊 Evidence Type #5: The Interactive HTML Report
+Location: output/reports/security_report_{timestamp}.html
+What's Inside:
+Executive Summary with OWASP compliance matrix
+Feature Inventory showing discovered pages, inputs, workflows
+Workflow State Machine Diagrams (visual flowcharts)
+Role Comparison Table (Admin vs User access differences)
+Detailed Findings with expandable sections showing:
+Test case ID and OWASP mapping
+AI LLM verdict and confidence score
+Embedded HTTP Request/Response (truncated for readability)
+Embedded Screenshot (visual proof)
+Reproducible cURL command
+Salesforce-specific remediation advice
+
+In Caido/ZAP, you can:
+Filter by header:X-SecTest-Category to see only SOQL injection tests
+Search header:X-SecTest-OWASP to find all A03 tests
+Group by X-SecTest-Case-ID to see all requests for a specific test case
+Export these requests as HAR files for external analysis
+
+
+
+
+
+
+**YES. The exact injection point is captured, categorized, and highlighted in multiple places.** This is critical for developers to know *where* to apply the fix.
+
+Here's exactly **where** and **how** the injection point is documented:
+
+---
+
+### 📍 Evidence Location #1: Raw HTTP Request (The Ground Truth)
+
+**File:** `output/evidence/{timestamp}/requests/{test_id}_req.json`
+
+The injection point is **visibly embedded** in the request structure:
+
+```json
+{
+  "test_case_id": "A03-SOQL-001",
+  "injection_point": {
+    "location": "query_parameter",
+    "field_name": "q",
+    "original_value": "SELECT Id FROM Account",
+    "injected_value": "SELECT Id FROM Account WHERE Name LIKE '' OR '1'='1",
+    "mutation_type": "soql_injection"
+  },
+  "request": {
+    "method": "GET",
+    "url": "https://your-sandbox.my.salesforce.com/services/data/v58.0/query/?q=SELECT+Id+FROM+Account+WHERE+Name+LIKE+%27%27+OR+%271%27%3D%271",
+    "headers": { ... },
+    "body": null
+  }
+}
+```
+
+**Injection Point Types Captured:**
+| `location` Value | Meaning | Example |
+|-----------------|---------|---------|
+| `query_parameter` | URL query string (`?q=...`) | `GET /search?q=<payload>` |
+| `url_path` | URL path segment | `GET /users/<payload>/profile` |
+| `json_body` | JSON request body | `POST /api { "name": "<payload>" }` |
+| `form_body` | Form-encoded body | `POST /login username=<payload>` |
+| `header` | HTTP header | `X-Custom-Header: <payload>` |
+| `cookie` | Cookie value | `session_id=<payload>` |
+| `multipart` | File upload field | `POST /upload file=<payload>` |
+
+---
+
+### 📍 Evidence Location #2: HTML Report Finding Card
+
+**Location:** `output/reports/security_report.html`
+
+The injection point is **highlighted prominently** at the top of each finding:
+
+```html
+<div class="finding-card critical">
+  <h3>A03-SOQL-001: SOQL Injection via Query Parameter</h3>
+  
+  <div class="injection-point-badge">
+    <span class="icon">🎯</span>
+    <strong>Injection Point:</strong> 
+    <code>GET /services/data/v58.0/query/</code> 
+    <span class="badge bg-warning">Query Parameter: q</span>
+  </div>
+  
+  <div class="vulnerable-code">
+    <strong>Vulnerable Parameter:</strong>
+    <pre><code>Parameter: q
+Original Value: SELECT Id FROM Account
+Injected Value: SELECT Id FROM Account WHERE Name LIKE '' OR '1'='1
+Location: URL Query String
+Method: GET</code></pre>
+  </div>
+  
+  <!-- Rest of finding... -->
+</div>
+```
+
+**Visual Example:**
+```
+ Injection Point: GET /services/data/v58.0/query/
+                     ─ Query Parameter: q
+```
+
+---
+
+### 📍 Evidence Location #3: Test Planner Metadata
+
+**File:** `output/evidence/{timestamp}/test_plan.json`
+
+Every planned test includes the injection context:
+
+```json
+{
+  "test_id": "A03-SOQL-001",
+  "target_endpoint": {
+    "url": "/services/data/v58.0/query/",
+    "method": "GET",
+    "category": "data_query"
+  },
+  "injection_target": {
+    "type": "query_parameter",
+    "field": "q",
+    "selector": "url.query.q",
+    "original_content_type": "text/plain",
+    "risk_category": "soql_injection"
+  },
+  "payload_strategy": {
+    "canary": "SF_CANARY_SQLI_8f2a",
+    "real_payloads": ["' OR '1'='1", "'; DROP TABLE Account--", ...]
+  }
+}
+```
+
+---
+
+### 📍 Evidence Location #4: Context Router Analysis
+
+**File:** `output/evidence/{timestamp}/exploration/context_analysis.json`
+
+Shows HOW the framework identified the injection point:
+
+```json
+{
+  "endpoint": "/services/data/v58.0/query/",
+  "method": "GET",
+  "parameters": [
+    {
+      "name": "q",
+      "location": "query",
+      "detected_type": "soql_query",
+      "confidence": 0.95,
+      "detection_method": "url_pattern_match",
+      "pattern_matched": "/query/?q=",
+      "risk_assessment": "CRITICAL - Direct SOQL query parameter"
+    }
+  ],
+  "body_parameters": [],
+  "headers": [],
+  "recommended_tests": ["soql_injection", "xss_reflected"]
+}
+```
+
+---
+
+### 📍 Evidence Location #5: Mutation Engine Execution Log
+
+**File:** `output/evidence/{timestamp}/mutation_log.json`
+
+Shows the exact mutation applied:
+
+```json
+{
+  "timestamp": "2024-01-15T18:32:45.123Z",
+  "test_id": "A03-SOQL-001",
+  "mutation_applied": {
+    "type": "parameter_injection",
+    "target_location": "query_parameter",
+    "target_field": "q",
+    "injection_strategy": "string_concatenation",
+    "original_request": {
+      "url": "/services/data/v58.0/query/?q=SELECT+Id+FROM+Account"
+    },
+    "mutated_request": {
+      "url": "/services/data/v58.0/query/?q=SELECT+Id+FROM+Account+WHERE+Name+LIKE+%27%27+OR+%271%27%3D%271"
+    },
+    "injection_offset": {
+      "position": 45,
+      "length": 23,
+      "injected_string": " WHERE Name LIKE '' OR '1'='1"
+    }
+  }
+}
+```
+
+---
+
+###  Evidence Location #6: Caido/ZAP Proxy View
+
+When you filter in your proxy, you see the injection point **in the URL itself**:
+
+**Caido Filter:** `param:q`
+```
+GET /services/data/v58.0/query/?q=SELECT+Id+FROM+Account+WHERE+Name+LIKE+%27%27+OR+%271%27%3D%271
+     └─────────────────────────────────────────────────────────────────────────────────────┘
+                                          INJECTION POINT
+```
+
+**Request Headers Tab:**
+```http
+GET /services/data/v58.0/query/?q=SELECT+Id+FROM+Account+WHERE+Name+LIKE+%27%27+OR+%271%27%3D%271 HTTP/1.1
+Host: your-sandbox.my.salesforce.com
+X-SecTest-Category: SOQL-Injection
+X-SecTest-Parameter: q
+X-SecTest-Injection-Location: query_parameter
+```
+
+---
+
+###  Real-World Example: Different Injection Points
+
+Here's how different injection points look in the evidence:
+
+#### Example 1: JSON Body Injection
+```json
+// File: API3-001_mass_assignment_req.json
+{
+  "injection_point": {
+    "location": "json_body",
+    "field_name": "IsDeleted",
+    "json_path": "$.IsDeleted",
+    "original_value": false,
+    "injected_value": true
+  },
+  "request": {
+    "method": "PATCH",
+    "url": "https://your-sandbox.my.salesforce.com/services/data/v58.0/sobjects/Account/0015g00000XyZ12AAF",
+    "body": {
+      "Name": "Test Account",
+      "IsDeleted": true,  // ← INJECTION POINT
+      "OwnerId": "005xx000001234567"
+    }
+  }
+}
+```
+
+**HTML Report Display:**
+```
+🎯 Injection Point: PATCH /services/data/v58.0/sobjects/Account/0015g...
+                     └─ JSON Body Field: $.IsDeleted
+```
+
+---
+
+#### Example 2: URL Path Injection (BOLA)
+```json
+// File: API1-001_bola_req.json
+{
+  "injection_point": {
+    "location": "url_path",
+    "field_name": "recordId",
+    "path_segment": 5,
+    "original_value": "0015g00000XyZ12AAF",
+    "injected_value": "0015g00000AbC34DEF"
+  },
+  "request": {
+    "method": "GET",
+    "url": "https://your-sandbox.my.salesforce.com/services/data/v58.0/sobjects/Account/0015g00000AbC34DEF"
+                                                                                          └──────┘
+                                                                                           INJECTION
+  }
+}
+```
+
+---
+
+#### Example 3: Header Injection
+```json
+// File: API2-001_auth_bypass_req.json
+{
+  "injection_point": {
+    "location": "header",
+    "field_name": "X-HTTP-Method-Override",
+    "original_value": null,
+    "injected_value": "DELETE"
+  },
+  "request": {
+    "method": "POST",
+    "url": "https://your-sandbox.my.salesforce.com/services/data/v58.0/sobjects/Account/0015g00000XyZ12AAF",
+    "headers": {
+      "X-HTTP-Method-Override": "DELETE",  // ← INJECTION POINT
+      "Content-Type": "application/json"
+    }
+  }
+}
+```
+
+---
+
+### 🔍 Developer Remediation View
+
+In the HTML report, developers see **exactly where to fix**:
+
+```html
+<div class="remediation-guide">
+  <h4>🔧 How to Fix This</h4>
+  
+  <div class="code-location">
+    <strong>Vulnerable Code Location:</strong>
+    <pre><code>File: AccountController.cls
+Line: 42
+Method: searchAccounts()
+Parameter: ApexPages.currentPage().getParameters().get('q')</code></pre>
+  </div>
+  
+  <div class="before-after">
+    <div class="vulnerable">
+      <strong>❌ Vulnerable (Line 42):</strong>
+      <pre><code>String query = 'SELECT Id FROM Account WHERE Name LIKE \'' + 
+               ApexPages.currentPage().getParameters().get('q') + '\'';
+List<Account> results = Database.query(query);</code></pre>
+    </div>
+    
+    <div class="secure">
+      <strong>✅ Secure Fix:</strong>
+      <pre><code>String searchQuery = ApexPages.currentPage().getParameters().get('q');
+String query = 'SELECT Id FROM Account WHERE Name LIKE :searchQuery';
+List<Account> results = Database.query(query);</code></pre>
+    </div>
+  </div>
+  
+  <div class="injection-point-summary">
+    <strong>Injection Point:</strong> Query parameter <code>q</code> in URL
+    <br><strong>Attack Vector:</strong> GET request to /services/data/v58.0/query/
+    <br><strong>Payload:</strong> <code>' OR '1'='1</code>
+  </div>
+</div>
+```
+
+---
+
+### ✅ Complete Injection Point Tracking Summary
+
+| Evidence Type | Where Injection Point Is Documented |
+|--------------|-------------------------------------|
+| **Raw JSON Evidence** | `injection_point.location`, `injection_point.field_name`, `injection_point.json_path` |
+| **HTML Report** | Prominent badge at top of finding card + vulnerable code section |
+| **Proxy Logs** | Visible in URL, headers, or body + `X-SecTest-Parameter` header |
+| **Test Plan** | `injection_target.type`, `injection_target.field`, `injection_target.selector` |
+| **Context Analysis** | `parameters[].location`, `parameters[].name`, `parameters[].risk_assessment` |
+| **Mutation Log** | `mutation_applied.target_location`, `mutation_applied.target_field`, `injection_offset` |
+| **cURL Command** | Visible in the actual command string |
+
+---
+
+### 🎯 The Bottom Line
+
+**Every single finding includes:**
+1. ✅ **Exact Location Type** (query param, JSON body, URL path, header, cookie)
+2. ✅ **Field Name** (`q`, `IsDeleted`, `recordId`, `X-Custom-Header`)
+3. ✅ **JSON Path** (if applicable: `$.user.name`, `$.IsDeleted`)
+4. ✅ **Original vs Injected Value** (showing the mutation)
+5. ✅ **Visual Highlight** in HTML report
+6. ✅ **Code Location** (if detectable from stack trace or context)
+7. ✅ **Remediation Guidance** specific to that injection point
+
+**A developer can look at the report and know EXACTLY:**
+- Which parameter is vulnerable
+- Where in the code it's processed
+- What payload triggered it
+- How to fix it
+
+This is **forensically complete, developer-friendly, auditor-verifiable evidence.** 🛡️📍
+
+
+
+With these 7 headers, a Security Analyst looking at Caido or ZAP can now run incredibly powerful queries without ever opening the HTML report:
+
+
+"Show me every time the scanner tried to inject into a JSON body field named IsDeleted across the entire application."
+Caido Filter: header:X-SecTest-Inject-Location="json_body" && header:X-SecTest-Target-Field="IsDeleted"
+
+"Show me all URL path manipulations (BOLA/IDOR) that resulted in a 403 Forbidden."
+Caido Filter: header:X-SecTest-Inject-Location="url_path" && status:403
+
+"Show me all tests targeting the q parameter that triggered the AI Brain (Phase 4)."
+Caido Filter: header:X-SecTest-Target-Field="q" && header:X-SecTest-Phase="Phase-4-Triage"
+
+
+
+
+

@@ -1,0 +1,38 @@
+🤖 1. The Local Python Scripts (The "Readers" & "Planners")
+Cost: $0.00 | Speed: Milliseconds
+The scripts are the deterministic engine. They use Regex, heuristics, and predefined logic to read the HTTP traffic and build the attack plan.
+Reading the Traffic:
+har_parser.py reads the HAR file (which contains the raw HTTP requests/responses).
+autonomous_explorer.py uses Playwright to intercept live network requests and extract DOM data.
+Context Routing (The "Brain" of the Scripts):
+context_router.py looks at the extracted endpoints. It doesn't need AI to know that a URL ending in /query?q=SELECT... is a database query. It uses simple Regex: If URL contains /query and parameter is q -> Category = data_query.
+Creating the Test Cases:
+test_planner.py takes that category (data_query) and looks at your YAML rules (testcases/owasp_api_top10.yaml).
+It says: "Rule A03-001 applies to data_query. I will generate a SOQL Injection test case for this endpoint."
+Result: The scripts have now created a list of 200 highly specific, context-aware test cases without spending a single LLM token.
+
+
+🧠 2. The LLM AI Brain (The "Judge" & "Visualizer")
+Cost: Pennies | Speed: Seconds
+The LLM is strictly gated. It is never used to read raw HTTP traffic to create test cases. It is only invoked in three specific, high-value scenarios:
+Scenario A: Visual Page Understanding (Phase 0)
+When: The Autonomous Explorer lands on a complex page (e.g., a custom Lightning Web Component).
+What the LLM does: The Vision LLM looks at a screenshot of the page and says, "This is an Admin Settings page with a 'Delete User' button."
+Why: Regex can't easily parse complex UI layouts. The Vision LLM feeds this context back to the scripts so the test_planner knows to generate API5 (Admin Bypass) tests for that page.
+Scenario B: Verifying Findings / Killing False Positives (Phase 4)
+When: The scripts execute a test, and the local finding_evaluator.py sees an anomaly (e.g., a 500 Internal Server Error). It flags it as a POTENTIAL_FINDING.
+What the LLM does: The Text LLM reads the truncated HTTP response body of that specific 500 error. It acts as a Senior Engineer and says, "This isn't a SQL injection. The stack trace shows a standard NullPointerException because a required field was missing. Mark as FALSE POSITIVE."
+Why: This saves you hours of manual triage. The LLM only looks at the anomalies, not the healthy traffic.
+Scenario C: Visual DOM XSS Verification (Phase 5)
+When: The scripts injected a safe probe (like <marquee>TEST</marquee>) and the local script saw it reflect in the HTML.
+What the LLM does: The Vision LLM looks at a screenshot of the page to confirm if the text actually rendered visually, or if it was just in the source code but hidden by CSS.
+
+
+
+
+Here is how the internal engine handles it seamlessly:
+When you run --mode observe, the GovernanceEngine evaluates the 483 Bible tests against the HAR/Explorer data. It filters out the Not Applicable and Not Observed tests.
+The remaining tests are loaded into a Pydantic object in memory called ExecutionPlan (and optionally exported to applicable_tests.json purely for your audit trail).
+When you immediately run --mode validate (or if you run the full pipeline), the SafeExecutor automatically reads that exact same ExecutionPlan from memory/cache.
+It iterates only through the tests marked as Applicable and fires the safe canary probes.
+The takeaway: applicable_tests.json is just a human-readable receipt of what the AI decided to test. The Python script handles the handoff to the execution engine automatically. You just run the CLI command; the script does the rest.

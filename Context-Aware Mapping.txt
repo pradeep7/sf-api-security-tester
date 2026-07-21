@@ -1,0 +1,43 @@
+✅ Approach B (Context-Aware Mapping) is the V3.1 Standard
+
+
+In Approach B, the OWASP guidelines act as a rulebook, not a checklist of blind attacks. The framework dynamically answers: "Given what this specific endpoint does, which rules from the OWASP book apply?"
+Here is the exact step-by-step flow of how your framework does this right now:
+Step 1: The Blueprint (YAML Rules)
+Your testcases/owasp_api_top10.yaml does not contain hardcoded endpoints. It contains conditional rules.
+Example Rule: "IF an endpoint has a URL parameter named q, search, or filter, AND the method is GET/POST, THEN it is susceptible to soql_injection (OWASP A03/API8)."
+Step 2: The Discovery (HAR + Explorer)
+The framework ingests the HAR file (or Autonomous Explorer output) and extracts the actual endpoints.
+Endpoint 1: GET /services/data/v58.0/query/?q=SELECT+Id+FROM+Account
+Endpoint 2: GET /services/data/v58.0/sobjects/Account/0015g00000XyZ12AAF
+Endpoint 3: POST /services/data/v58.0/composite
+Step 3: The Context Router (The "Brain")
+The ContextRouter analyzes each endpoint's URL, method, headers, and body, and matches them against the YAML rules.
+Endpoint 1: Has a q parameter. ➔ Matches: soql_injection, xss.
+Endpoint 2: Has a 18-character Salesforce ID in the URL path. ➔ Matches: bola_idor.
+Endpoint 3: Is a composite endpoint accepting a JSON array. ➔ Matches: mass_assignment, bfla.
+Step 4: The Execution (Targeted Mutations)
+The TestPlanner and MutationEngine only generate and execute the tests that were matched in Step 3.
+Endpoint 1 gets SOQL payloads.
+Endpoint 2 gets ID-swapping payloads.
+Endpoint 3 gets JSON manipulation payloads.
+None of them get blind SSRF or path traversal payloads, because the Context Router determined they don't accept URL/file inputs.
+Step 5: The Reporting (The Power of "NA")
+In the final HTML report, the OWASP Compliance Matrix shows:
+A03 Injection: 1 Tested, 1 Passed. (Coverage: 100%)
+API7 SSRF: 0 Tested, 0 Applicable. (Status: NA)
+Crucial Insight: "NA" is not a failure. "NA" is a verified security state. It proves to an auditor: "We analyzed the endpoint, determined it does not accept URL inputs, and therefore SSRF is mathematically impossible. We did not waste time testing it."
+
+
+🧠 Real-World Example: How a Test Case is Born
+Let's trace a single test case from OWASP guideline to final report:
+OWASP Guideline: "API1: Broken Object Level Authorization. Applications should verify that the user has access to the specific object ID requested."
+HAR Discovery: Framework sees GET /services/apexrest/TenantData?id=0015g00000XyZ12AAF with a valid session cookie.
+Context Routing: The ContextRouter sees /apexrest/ and an 18-character ID (0015g...). It flags this as a BOLA Risk Surface.
+Test Generation: The TestPlanner creates a specific test case: "Attempt to access TenantData with a fake ID 000000000000000AAA and a cross-tenant ID 0015g00000AbC34DEF."
+Execution: The MutationEngine sends these two mutated requests, tagged with X-SecTest-Category: BOLA.
+Evaluation:
+Fake ID returns 404 NOT_FOUND ➔ Good (Access Control Working)
+Cross-tenant ID returns 403 FORBIDDEN ➔ Good (Sharing Rules Working)
+Final Verdict: The framework marks this specific test case as NOT_FINDING (Passed).
+Report: The OWASP Matrix shows "API1: 1 Tested, 1 Passed". The detailed section shows the exact HTTP requests, the 403 response, and the LLM's confirmation: "True Negative: Salesforce OWD sharing rules correctly blocked cross-tenant access."

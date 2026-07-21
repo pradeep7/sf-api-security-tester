@@ -1,0 +1,44 @@
+📊 Deliverable 1: The Interactive HTML Report (The "Crown Jewel")
+When you open reports/security_report_<timestamp>.html in your browser, you will see a beautiful, dark-themed, consultant-grade report. It is structured exactly like this:
+1. Executive Summary & OWASP Compliance Matrix
+At the very top, a dashboard showing your exact coverage. It proves you didn't just run a blind scanner.
+OWASP API Top 10 (2023): 10/10 Categories Assessed (100%)
+OWASP Web Top 10 (2021): 10/10 Categories Assessed (100%)
+OWASP Secure Coding (v2): 13/13 Categories Assessed (100%)
+Note: Categories not applicable to the discovered endpoints are cleanly marked as "N/A" with a reason (e.g., "No file upload endpoints discovered"), proving 100% scope coverage without noise.
+2. 🗺️ Discovered Feature Inventory & Workflows
+This is the output of your Phase 0 Recon. It shows the AI's understanding of the application:
+Pages Discovered: 42 (e.g., "Account List View", "User Settings", "Checkout Flow")
+Risk Surfaces Mapped: 8 (e.g., "3 Search Fields → SOQL Injection Risk", "1 Admin Page → BFLA Risk")
+Workflow State Machines: A visual flowchart (e.g., [Step 1: Cart] --> [Step 2: Payment] --> [Step 3: Confirm]) with green/red indicators showing if API6 (Business Logic Bypass) tests passed or failed.
+3. 🔴 Detailed Findings (The "Proof")
+For every vulnerability found, you get a dedicated, expandable card containing:
+Test Case ID & Name: e.g., A03-SOQL-001: SOQL Injection via Query Parameter
+OWASP Mapping: Badges for API8, A03, SCP-11.
+AI Triage Verdict: "TRUE POSITIVE (Confidence: 0.95). The LLM confirmed this is a valid SOQL injection, not a standard 500 error."
+Salesforce-Specific Remediation: "Update MyApexController.cls to use bind variables (WHERE Name = :userName) instead of dynamic string concatenation."
+Live Evidence:
+The exact curl command to reproduce it.
+The raw HTTP Request (with redacted auth tokens).
+The raw HTTP Response (truncated to 50KB to prevent bloat).
+Visual Proof: A Playwright screenshot of the page showing the reflected payload or error, annotated by the Vision LLM (e.g., "Visible evidence: Raw SOQL syntax error is rendered in the UI").
+🤖 Deliverable 2: Machine-Readable JSON Report
+Alongside the HTML file, you get reports/security_report_<timestamp>.json.
+This is a structured, machine-readable version of the entire assessment. It is designed to be:
+Piped directly into a SIEM (like Splunk or Sentinel) for security tracking.
+Consumed by a CI/CD pipeline (like GitHub Actions or Azure DevOps) to automatically fail a deployment if a "Critical" finding is detected.
+Parsed by custom dashboards to track vulnerability trends over time.
+📂 Deliverable 3: The Evidence Vault (output/evidence/)
+For auditors or manual pentesters who want to verify the AI's work, the framework saves a complete, timestamped audit trail in the evidence/ directory:
+requests/ & responses/: JSON files containing the exact, unaltered HTTP traffic for every single test executed.
+screenshots/: Full-page PNG captures of the browser state at the moment of the exploit.
+exploration/: The raw SiteMap and AuditEvent logs proving exactly which links the AI clicked, in what order, and what the Vision LLM saw.
+🧠 The "Story" of How a Finding is Generated (Example)
+To understand how the output is generated, here is the exact lifecycle of a single finding in your report:
+Recon (Phase 0): The AI Explorer clicks through your Salesforce portal. It lands on /lightning/o/Contact/list. The Vision LLM analyzes the screenshot and says: "This is a List View with a 'Search' input field."
+Planning (Phase 0.5): The TestPlanner sees a "Search" field. It maps this to OWASP A03 (Injection). It generates one safe canary probe: SF_CANARY_SQLI_8f2a.
+Probing (Phase 0.5): The SafeExecutor types SF_CANARY_SQLI_8f2a into the search bar and hits enter.
+Detection: The local script checks the DOM. It sees SF_CANARY_SQLI_8f2a reflected in the page source. It flags this as a POTENTIAL_FINDING.
+Escalation (Phase 3): Because the canary reflected, the MutationEngine wakes up. It fetches real, dynamic SOQL payloads from the PayloadManager and fires them at that exact search endpoint, tagged with X-SecTest-Category: SOQL-Injection.
+AI Triage (Phase 4): The endpoint returns a 500 Internal Server Error. The local script flags it. The Text LLM reads the truncated error body and says: "TRUE POSITIVE. The error contains 'unexpected token' and 'MALFORMED_QUERY'. This is a confirmed SOQL injection."
+Reporting (Phase 6): The HTML report is generated. It shows a Critical Finding for A03, complete with the LLM's reasoning, the exact HTTP request/response, and a screenshot of the error.
