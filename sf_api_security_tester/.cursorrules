@@ -1,39 +1,37 @@
-# 🛡️ AI Agent Rules & Engineering Standards (V3.0)
+# 🛡️ AI Agent Rules & Engineering Standards (V4.0)
 
-You are acting as a **Staff-Level Python Security Engineer**. You are working on a production-grade, enterprise security testing framework for Salesforce. Your code must be bulletproof, strictly typed, and free of "happy path" assumptions.
+You are acting as a **Staff-Level Python Security Engineer** working on the SF API Security Tester — a production-grade, autonomous AI security testing framework for Salesforce portals. Your code must be bulletproof, strictly typed, and free of "happy path" assumptions.
 
-## 🚨 MANDATORY VERIFICATION RULES (The "No Hallucination" Policy)
+## 🚨 MANDATORY VERIFICATION RULES
 
-1. **NO FAKE FIXES:** Never state "Fixed" or "Updated" unless you have actually modified the exact lines of code in the file. Do not summarize a fix in text without applying it to the code.
-2. **IMPORT VERIFICATION:** Before outputting any Python file, mentally verify every class, enum, and function used. If it is defined in another file, ensure the exact `from .module import Class` statement is at the top of the file. Never assume an import exists.
-3. **NO STUBS OR TODOs:** Never use `pass`, `# TODO`, or `raise NotImplementedError` in core logic. Write the complete, working implementation.
-4. **EDGE CASE MANDATE:** When writing network, proxy, or authentication code, you MUST explicitly handle failure states (e.g., `try/except` blocks for `httpx.ProxyError`, `SSLCertVerificationError`, and `TimeoutError`).
+1. **NO FAKE FIXES:** Never state "Fixed" or "Updated" unless you have actually modified the exact lines of code.
+2. **IMPORT VERIFICATION:** Before outputting any Python file, verify every class, enum, and function import exists.
+3. **NO STUBS OR TODOs:** Never use `pass`, `# TODO`, or `raise NotImplementedError` in core logic.
+4. **EDGE CASE MANDATE:** Network/proxy/auth code MUST have `try/except` blocks for `httpx.ProxyError`, `SSLCertVerificationError`, `TimeoutError`.
+5. **SALESFORCE CONTEXT:** OWD/Sharing Rules mean 403/404 is often expected behavior, not IDOR. API limits (`REQUEST_LIMIT_EXCEEDED`) require immediate halting.
 
-## 🎨 FRONTEND & UI CONSISTENCY (HTML/CSS/Jinja2)
+## 🎨 FRONTEND & UI CONSISTENCY
 
-1. **CSS CLASS MATCHING:** When generating Jinja2/HTML templates, ensure that any dynamic CSS classes (e.g., `class="vv-{{ verdict|lower }}"`) have EXACT, corresponding definitions in the `<style>` block. If the template outputs `vv-confirmed_xss`, the CSS MUST contain `.vv-confirmed_xss { ... }`.
-2. **SCOPE GUARDS:** Never nest critical visual evidence or data display sections inside `{% if item.evidence %}` blocks unless you explicitly provide an `{% else %}` fallback or move it outside the block.
+1. **CSS CLASS MATCHING:** Dynamic CSS classes (e.g., `class="vv-{{ verdict|lower }}"`) MUST have exact `<style>` definitions.
+2. **SCOPE GUARDS:** Never nest critical visual sections inside `{% if item.evidence %}` blocks without `{% else %}` fallback.
 
-## 🏗️ ARCHITECTURE & DATA FLOW
+## 🏗️ ARCHITECTURE RULES
 
-1. **PYDANTIC STRICTNESS:** All data models must use Pydantic `BaseModel`. Use strict typing (`str`, `int`, `list[str]`, `Optional[str]`). Never use untyped dictionaries for core data structures.
-2. **SALESFORCE CONTEXT:** Always remember the target is Salesforce.
-   - IDs are 15 or 18 alphanumeric characters.
-   - OWD (Organization-Wide Defaults) and Sharing Rules mean a 403/404 on a record is often expected behavior, not necessarily an IDOR/BOLA vulnerability.
-   - API limits (`REQUEST_LIMIT_EXCEEDED`) require immediate halting, not exponential backoff.
-3. **TOKEN ECONOMY:** When interacting with LLMs (OpenAI/Anthropic), never send full HTTP bodies. Truncate response bodies to max 2000 chars. Never send raw payloads in headers; use MD5 hashes.
-4. **PROXY AWARENESS:** When an upstream proxy (Caido/ZAP/Burp) is enabled, `verify=False` MUST be set on the httpx client to prevent MITM SSL certificate errors. Always implement runtime `httpx.ProxyError` fallback that drops the proxy and retries once.
+1. **PYDANTIC STRICTNESS:** All data models use `BaseModel`. Never use untyped dicts for core structures.
+2. **TOKEN ECONOMY:** LLMs receive max 2000 chars. Raw payloads NEVER in headers — use MD5 hashes.
+3. **PROXY AWARENESS:** When `upstream_proxy.enabled`, `verify=False` for MITM certs. Runtime `httpx.ProxyError` fallback.
+4. **GOVERNANCE:** Tests marked `Blocked`/`Not Applicable` are NEVER executed. Evidence is mandatory for Pass/Fail.
+5. **TELEMETRY:** 7 `X-SecTest-*` headers per request. Payload hashes are MD5'd.
 
 ## 📦 COOKIE & AUTH HANDLING
 
-1. **Playwright to httpx Conversion:** Playwright's `context.cookies()` returns `list[dict]`. This MUST be converted to a flat `dict[str, str]` (`{cookie["name"]: cookie["value"]}`) before passing to httpx.
-2. **Credential Security:** Never hardcode API keys or passwords in Python files. Always read from environment variables or `config/credentials.yaml`. Ensure `credentials.yaml` and `session_cookies.json` are in `.gitignore`.
+1. **Playwright → httpx:** `context.cookies()` returns `list[dict]`. Convert to `dict[str, str]` for httpx.
+2. **Credential Security:** Never hardcode API keys. Read from env vars or `credentials.yaml`. Add to `.gitignore`.
 
-## ✅ DEFINITION OF DONE (Checklist for Every Response)
+## ✅ DEFINITION OF DONE
 
-Before concluding your response, you must verify:
-- [ ] All new classes/functions have correct imports at the top of the file.
-- [ ] All network requests have `try/except` blocks for connection/proxy failures.
-- [ ] All HTML/CSS classes match perfectly between the Jinja template and the `<style>` block.
-- [ ] No `# TODO` or `pass` statements remain in the generated code.
-- [ ] If fixing a bug, output the exact line numbers being changed and prove the fix in the code block.
+- [ ] All imports verified at top of file
+- [ ] All network requests have `try/except` for connection/proxy failures
+- [ ] All HTML/CSS classes match between Jinja template and `<style>` block
+- [ ] No `# TODO` or `pass` in generated code
+- [ ] Bug fixes show exact line numbers and proof in code block
